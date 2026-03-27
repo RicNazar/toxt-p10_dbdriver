@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Environment variables
+.env
+
+# VS Code / PyCharm configs
+.vscode/
+.idea/
+
+# Logs and local debug
+*.log
+*.sqlite3
+*.db
+
+# Python cache
+*.pyo
+*.pyd
+*.pyc
+
+# mypy and coverage
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Docker
+*.pid
+*.pid.lock
+docker-compose.override.yml
+
+# Mac/Linux system files
+.DS_Store
+Thumbs.db
+
+# Database files
+pgdata/
