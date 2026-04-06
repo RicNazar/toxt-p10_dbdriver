@@ -1,17 +1,17 @@
 [build-system]
 requires = ["setuptools>=61"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyEasyDb"
+name = "pyEasyMatrixDb"
 version = "0.1.0"
 description = "Easiest way to search and update a database using matrix like queries"
 requires-python = ">=3.10"
 dependencies = ["sqlalchemy>=2.0"]
+authors = [
+    { name="Ricardo Nazar Rodrigues", email="ricardo@toxt.com.br" }
+]
+readme = "README.md"
 
-[tool.setuptools]
-packages = ["pyeasydb", "pyeasydb.subclasses"]
-
-[tool.setuptools.package-dir]
-"pyeasydb" = "app/DbDriver"
-"pyeasydb.subclasses" = "app/DbDriver/subclasses"
+[tool.setuptools.packages.find]
+where = ["src"]

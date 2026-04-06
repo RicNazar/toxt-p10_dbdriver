@@ -1,7 +1,5 @@
 from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table, create_engine, select
-
-from DbDriver import DbDriver
-
+from pyeasymatrixdb import DbDriver
 
 def print_block(title: str, rows):
 	print(f"\n=== {title} ===")

@@ -44,8 +44,8 @@ class DbDriverUtils:
         columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
         matrix: List[List[Any]],
     ) -> Tuple[List[int], List[List[Any]]]:
-        #valida se a matriz tem 2 linhas
-        if not matrix or len(matrix) != 2:
+        #valida se a matriz tem ao menos 2 linhas
+        if not matrix or len(matrix) < 2:
             raise ValueError("Matriz inválida. É necessário ter ao menos 2 linhas.")
 
         #separa a linha de tabelas e a linha de colunas

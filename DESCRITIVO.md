@@ -1,128 +1,212 @@
-## Objetivo:
+## Objetivo
 
-Classe capaz de executar uma consulta/atualização/exclusão em qualquer banco de dados utilizando sqlAlchemy
+Biblioteca Python que abstrai consultas, atualizações, inserções e exclusões em qualquer banco de dados suportado pelo SQLAlchemy, utilizando **matrizes bidimensionais** (`List[List[Any]]`) como interface única de entrada e saída.
 
-## Modelos:
+---
 
-filter (opcional):
+## Modelos de Dados (entrada)
 
-- matriz bidimensional contendo:
-- - na primeira linha o nome da tabela
-- - na segunda linha o cabeçalho de interesse
-- - nas demais linhas, entre linhas (caso <> null) \_e para entre colunas e \_ou para entre linhas
+### header
 
-header:
+Matriz **2 linhas × N colunas** que define quais colunas serão retornadas em uma pesquisa.
 
-- matriz bidimensional contendo:
-- - na primeira linha o nome da tabela
-- - na segunda linha o cabeçalho de interesse
+| Linha | Conteúdo                      |
+| ----- | ----------------------------- |
+| 0     | Nome da tabela de cada coluna |
+| 1     | Nome da coluna                |
 
-data:
+```python
+header = [
+    ["users", "orders", "orders"],
+    ["name",  "product","status"],
+]
+```
 
-- matriz bidimensional contendo:
-- - na primeira linha o nome da tabela
-- - na segunda linha o cabeçalho de interesse
-- - nas demais linhas a informação a ser atualizada/inserida/removida
-- - a última coluna sempre deve se chamada MD e só pode possuir os valores "U" -> Atualização/inclusão, "D" -> remoção
-- - só pode-se fazer remoção com atualização/inclusão caso não hajá filtros e a coluna primária estiver presente
+### filter (opcional)
 
-relationships (opcional):
+Matriz **≥ 3 linhas × N colunas** que define critérios de filtragem (cláusula `WHERE`).
 
-- matriz bidimensional contendo:
-- - coluna 1, "Tabela A": Nome da tabela da relação
-- - coluna 2, "Tabela B": Nome da tabela da relação
-- - coluna 3, "Coluna da tabela A": Nome da coluna da tabela A que se connecta com a tabela B
-- - coluna 4, "Coluna da tabela B": Nome da coluna da tabela B que se conecta com a da tabela A
-- - coluna 5 (opcional), "inner": 0 apenas left join, 1 (padrão) left inner join
-- - regra: leitura de baixo para cima, tabela A sempre completa tabela B
+| Linha | Conteúdo                              |
+| ----- | ------------------------------------- |
+| 0     | Nome da tabela de cada coluna         |
+| 1     | Nome da coluna                        |
+| 2+    | Valores de filtro (`None` = ignorado) |
 
-\_columns_definitions:
+- **Entre colunas** (mesma linha): condição `AND`.
+- **Entre linhas** (linhas distintas): condição `OR`.
+- Suporta operadores via tupla: `("!=", valor)`, `(">", valor)`, `(">=", valor)`, `("<", valor)`, `("<=", valor)`, `("like", valor)`.
 
-- dicionário que armazena as definições de tabela -> coluna -> {"type":...,"primary":...,"unique":...,"default":...,"nullable":...} obtidos de metadata
+```python
+# status = "OPEN" AND user_id = 1   OR   status = "CLOSED"
+filter = [
+    ["orders",  "orders" ],
+    ["status",  "user_id"],
+    ["OPEN",    1        ],
+    ["CLOSED",  None     ],
+]
+```
 
-\_primary_keys:
+### data
 
-- dicionário que armazena as definições de tabela -> primary_key (null caso não exista)
+Matriz **≥ 3 linhas × N colunas** usada em operações de escrita (insert/update/delete).
 
-## Classes principais:
+| Linha | Conteúdo                                                   |
+| ----- | ---------------------------------------------------------- |
+| 0     | Nome da tabela de cada coluna                              |
+| 1     | Nome da coluna (**última coluna obrigatoriamente `"MD"`**) |
+| 2+    | Valores + marcador na coluna `MD`                          |
 
-DbDriver:
-**init** (metadata, engine)
-self.\_metadata = metadata
-self.\_engine = engine
-self.Pesquisar = DbDriverSearch(metadata, engine)
-self.Atualizar = DbDriverUpdate(metadata, engine)
+Valores aceitos na coluna `MD`:
 
-    def execute(query:string,dialect:string):
-    - executa uma query passada, converte caso necessário
+- `"U"` / `"A"` → Atualização (se PK existir e registro encontrado) ou Inserção (caso contrário).
+- `"D"` → Remoção (exige PK presente no data).
 
-    def execute_stmt(stmt: statement do sqlAlchemy):
-    - executa um statement passado
+```python
+data = [
+    ["users", "users", "users", "users"],
+    ["id",    "name",  "email", "MD"   ],
+    [1,       "Ana",   "a@x.com","U"   ],
+    [5,       "Novo",  "n@x.com","U"   ],
+    [3,       None,    None,     "D"   ],
+]
+```
 
-DbDriverCore:
-**init** (metadata, engine)
-self.\_metadata = metadata
-self.\_engine = engine
-self.\_columns_definitions = DbDriverUtils.get_columns_definitions(metadata)
-self.\_primary_keys = DbDriverUtils.get_primary_keys(metadata)
+### relationships (opcional)
 
-    def reset():
-    - Remove os atributos não privados caso existam
+Lista de listas que define JOINs entre tabelas. Leitura de baixo para cima; tabela A complementa tabela B.
 
-    def define_filter(filter: List[List[any]]):
-    - Valida e salva em self.filter_positions e self.filter utilizando DbDriverUtils.get_valid_columns
+| Índice  | Campo    | Descrição                                  |
+| ------- | -------- | ------------------------------------------ |
+| 0       | Tabela A | Nome da tabela origem do JOIN              |
+| 1       | Tabela B | Nome da tabela destino do JOIN             |
+| 2       | Coluna A | Coluna de Tabela A usada na condição       |
+| 3       | Coluna B | Coluna de Tabela B usada na condição       |
+| 4 (opc) | inner    | `1` (padrão) = INNER JOIN, `0` = LEFT JOIN |
 
-    def define_relationships(relationships: List[List[any]]):
-    - Valida e salva em self.relationships self.\_columns_definitions
+```python
+relationships = [
+    ["orders", "users", "user_id", "id", 1],
+]
+```
 
-DbDriverSearch(DbDriverCore):
+---
 
-    def reset(): Remove os atributos table, header e filter caso existam
+## Modelos de Dados (saída)
 
-    def define_header(header: List[List[any]]): - Valida e salva em self.header_positions e self.header utilizando DbDriverUtils.get_valid_columns
+Toda saída é uma **matriz bidimensional** com a mesma estrutura:
 
-    def search(reset: boolean = true): Valida se é possível a pesquisa e executa, com reset = true executa self.reset()
+| Linha | Conteúdo                                                         |
+| ----- | ---------------------------------------------------------------- |
+| 0     | Nome da tabela de cada coluna (ou `"__result__"` / `"__meta__"`) |
+| 1     | Nome da coluna                                                   |
+| 2+    | Registros retornados                                             |
 
-DbDriverUpdate(DbDriverCore):
+Quando `complete=True`, a saída é expandida para incluir **todas** as colunas das tabelas envolvidas (preenchendo com `default` as ausentes).
 
-    def define_data(data: List[List[any]]): - Valida e salva em self.data_positions e self.data utilizando DbDriverUtils.get_valid_columns
+Para `execute()` / `execute_stmt()` sem linhas de retorno, a saída é `[["__meta__"], ["rowcount"], [n]]`.
 
-    def update(reset: boolean = true):
-    - Valida se é possível a atualização e executa, com reset = true executa self.reset()
-    - A última coluna deve possuir "A" para atualização/inclusão e "D" para remção
+---
 
-## Classe de utilitários:
+## Estruturas internas
 
-DbDriverUtils
-def **new**(cls, \*args, \*\*kwargs):
-raise TypeError("This class cannot be instantiated")
+### \_columns_definitions
 
-    def get_columns_definitions(metadata) -> Dict:
-    - Gera um dicionário à partir de metadata na estrutura: tabela -> coluna -> {"type":...,"primary":...,"unique":...,"default":...,"nullable":...}
+Dicionário gerado a partir de `MetaData`:
 
-    def get_primary_keys(metadata) -> Dict:
-    - Gera um dicionário com as chaves primárias de todas as tabelas na estrutura: tabela : coluna_chave_primarica
+```
+tabela → coluna → {
+    "type":       <SQLAlchemy Type>,
+    "primary":    bool,
+    "unique":     bool,
+    "default":    valor | None,
+    "nullable":   bool,
+    "table_obj":  <Table>,
+    "column_obj": <Column>,
+}
+```
 
-    def get_valid_columns(columns_definitions: Dict, matrix: list[list[any]]) -> tuple(list[int],list[list[any]]):
-    - Recebe uma matriz, valida as colunas da mesma se existem em columns_definitions e retorna a posição das colunas válidas e as colunas válidas
+### \_primary_keys
 
-    def is_valid_table(columns_definitions: Dict, table: str) -> boolean: valida se a tabela está em columns_definitions
-    - verifica se a table está em columns_definitions
+Dicionário `tabela → nome_coluna_pk` (`None` se não houver PK).
 
-    def buid_select(columns_definitions: Dict,headers: List[List[any]],relationships: List[List[any]]=[], filters: List[List[any]]=[]) -> stmt:
-    - gera o stmt sqlalchemy para o select
+---
 
-    def buid_update(columns_definitions: Dict, data: List[List[any]],relationships: List[List[any]] =[], filters: List[List[any]] =[]) -> stmt:
-    - Gera o stmt sqlalchemy para o update
+## Classes
 
-    def buid_insert(columns_definitions: Dict, data: List[List[any]]) -> stmt:
-    - Gera o stmt sqlalchemy para o insert
+### DbDriver
 
-    def buid_delete(columns_definitions: Dict, keys: List[List[any]] = [],relationships: List[List[any]] =[], filters: List[List[any]] =[] ) -> stmt:
-    - Gera o stmt sqlalchemy para o delete
+Classe principal — ponto de entrada da biblioteca.
 
-    def _build_filters(columns_definitions: Dict, filters: List[List[any]]) -> :
-    - Gera os critérios a serem colocados dentro da cláusula where de um stmt
+```python
+DbDriver(metadata: MetaData, engine: Engine)
+```
 
-    def _valid_info(type: string, info: any) 0 > any:
-    - Converte a info no tipo de informação válida aceita pela coluna
+| Atributo    | Tipo             | Descrição                 |
+| ----------- | ---------------- | ------------------------- |
+| `Pesquisar` | `DbDriverSearch` | Sub-objeto para consultas |
+| `Atualizar` | `DbDriverUpdate` | Sub-objeto para escrita   |
+
+| Método                | Entrada              | Saída                                                   |
+| --------------------- | -------------------- | ------------------------------------------------------- |
+| `execute(query: str)` | SQL puro como string | Matriz resultado ou `[["__meta__"], ["rowcount"], [n]]` |
+| `execute_stmt(stmt)`  | Statement SQLAlchemy | Idem                                                    |
+
+---
+
+### DbDriverCore (classe base)
+
+```python
+DbDriverCore(metadata: MetaData, engine: Engine)
+```
+
+| Método                                | Entrada             | Saída  | Descrição                                                     |
+| ------------------------------------- | ------------------- | ------ | ------------------------------------------------------------- |
+| `reset()`                             | —                   | —      | Remove todos atributos públicos (não prefixados com `_`)      |
+| `define_filter(filter)`               | Matriz filter       | `self` | Valida colunas e salva `self.filter_positions`, `self.filter` |
+| `define_relationships(relationships)` | Lista relationships | `self` | Valida tabelas/colunas e salva `self.relationships`           |
+
+---
+
+### DbDriverSearch (herda DbDriverCore)
+
+| Método                                             | Entrada       | Saída            | Descrição                                                           |
+| -------------------------------------------------- | ------------- | ---------------- | ------------------------------------------------------------------- |
+| `reset()`                                          | —             | —                | Remove `table`, `header`, `filter`                                  |
+| `define_header(header)`                            | Matriz header | `self`           | Valida e salva `self.header_positions`, `self.header`, `self.table` |
+| `search(reset=True, complete=False, default=None)` | —             | Matriz resultado | Executa SELECT; `complete=True` expande todas colunas das tabelas   |
+
+---
+
+### DbDriverUpdate (herda DbDriverCore)
+
+| Método                                             | Entrada     | Saída       | Descrição                                                                              |
+| -------------------------------------------------- | ----------- | ----------- | -------------------------------------------------------------------------------------- |
+| `define_data(data)`                                | Matriz data | `self`      | Valida colunas (incluindo MD) e salva `self.data_positions`, `self.data`               |
+| `update(reset=True, complete=False, default=None)` | —           | Matriz data | Executa U/A (upsert) e D (delete) linha a linha; `complete=True` expande todas colunas |
+
+Regras de `update()`:
+
+- `"U"` / `"A"`: se PK presente e registro existe → UPDATE; senão → INSERT (valida colunas obrigatórias).
+- `"D"`: exige PK; executa DELETE.
+- Filtro extra (via `define_filter`) é adicionado como `WHERE` adicional.
+
+---
+
+### DbDriverUtils (classe estática, não instanciável)
+
+| Método                                                                             | Entrada                    | Saída                                                               |
+| ---------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| `get_columns_definitions(metadata)`                                                | `MetaData`                 | `Dict[str, Dict[str, Dict[str, Any]]]`                              |
+| `get_primary_keys(metadata)`                                                       | `MetaData`                 | `Dict[str, str \| None]`                                            |
+| `get_valid_columns(columns_definitions, matrix)`                                   | Dict + Matriz (2 linhas)   | `(List[int], List[List[Any]])` — posições válidas e matriz filtrada |
+| `is_valid_table(columns_definitions, table)`                                       | Dict + str                 | `bool`                                                              |
+| `buid_select(columns_definitions, headers, relationships, filters)`                | Dict + matrizes            | Statement `SELECT` do SQLAlchemy                                    |
+| `buid_update(columns_definitions, data, relationships, filters)`                   | Dict + matrizes            | `List[Statement]` — lista de `UPDATE`                               |
+| `buid_insert(columns_definitions, data)`                                           | Dict + matriz data         | Statement `INSERT` (ou `None`)                                      |
+| `buid_delete(columns_definitions, keys, relationships, filters)`                   | Dict + matrizes            | `List[Statement]` — lista de `DELETE`                               |
+| `_build_filters(columns_definitions, filters)`                                     | Dict + matriz filter       | Expressão `WHERE` SQLAlchemy (ou `None`)                            |
+| `_valid_info(type, info)`                                                          | str tipo + valor           | Valor convertido para o tipo da coluna                              |
+| `to_matrix_from_records(column_names, records)`                                    | `List[str]` + `List[List]` | Matriz com `"__result__"` na linha de tabelas                       |
+| `to_meta_matrix(rowcount)`                                                         | `int`                      | `[["__meta__"], ["rowcount"], [n]]`                                 |
+| `expand_structure(columns_definitions, matrix, include_md)`                        | Dict + matriz + bool       | `(target_tables, target_headers, source_index_map)`                 |
+| `project_matrix(matrix, target_tables, target_headers, source_index_map, default)` | Matrizes + mapa            | Matriz expandida com todas colunas                                  |
