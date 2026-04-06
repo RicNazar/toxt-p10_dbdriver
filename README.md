@@ -9,19 +9,13 @@ Abstrai SELECT, INSERT, UPDATE e DELETE via SQLAlchemy Core — funciona com qua
 pip install pyeasymatrixdb
 ```
 
-Ou direto do código-fonte:
+## GitHub
 
-```bash
-git clone <repo-url>
-cd DriverDb
-pip install -e .
-```
-
-**Dependência:** `sqlalchemy >= 2.0`
+https://github.com/RicNazar/toxt-p10_dbdriver
 
 ## Início Rápido
 
-```python
+```pythons
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, ForeignKey
 
 # Cria uma engine em memória
