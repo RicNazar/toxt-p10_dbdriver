@@ -73,6 +73,10 @@ def demo_execute(driver: DbDriver, users: Table):
 	rows_stmt = driver.execute_stmt(select(users.c.id, users.c.name).where(users.c.id >= 2))
 	print_block("execute_stmt(stmt): users id >= 2", rows_stmt)
 
+	# DML via execute() – deve retornar __meta__ com rowcount
+	meta = driver.execute("UPDATE users SET name = name WHERE 1=1")
+	print_block("execute(query): DML retorna __meta__", meta)
+
 
 def demo_search(driver: DbDriver):
 	header_join = [
@@ -122,6 +126,15 @@ def demo_search(driver: DbDriver):
 
 	rows_or = driver.Pesquisar.define_header(header_users).define_filter(filters_or).search(reset=True)
 	print_block("Pesquisar.search com filtro OR (duas linhas)", rows_or)
+
+	# Filtro com operador de tupla: id > 1
+	filters_tuple = [
+		["users"],
+		["id"],
+		[(">", 1)],
+	]
+	rows_tuple = driver.Pesquisar.define_header(header_users).define_filter(filters_tuple).search(reset=True)
+	print_block("Pesquisar.search com filtro tupla (id > 1)", rows_tuple)
 
 
 def demo_update(driver: DbDriver):

@@ -3,14 +3,25 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import MetaData, and_, delete, insert, or_, select, update
+from typing import TypedDict
+
+class ColumnDefinition(TypedDict):
+    type: Any
+    primary: bool
+    unique: bool
+    default: Any
+    nullable: bool
+    table_obj: Any
+    column_obj: Any
+
 
 class DbDriverUtils:
     def __new__(cls, *args, **kwargs):
         raise TypeError("This class cannot be instantiated")
 
     @staticmethod
-    def get_columns_definitions(metadata: MetaData) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    def get_columns_definitions(metadata: MetaData) -> Dict[str, Dict[str, ColumnDefinition]]:
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]] = {}
 
         for table_name, table_obj in metadata.tables.items():
             columns_definitions[table_name] = {}
@@ -41,7 +52,7 @@ class DbDriverUtils:
 
     @staticmethod
     def get_valid_columns(
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         matrix: List[List[Any]],
     ) -> Tuple[List[int], List[List[Any]]]:
         #valida se a matriz tem ao menos 2 linhas
@@ -77,7 +88,7 @@ class DbDriverUtils:
         return valid_positions, valid_matrix
 
     @staticmethod
-    def is_valid_table(columns_definitions: Dict[str, Dict[str, Any]], table: str) -> bool:
+    def is_valid_table(columns_definitions: Dict[str, Dict[str, ColumnDefinition]], table: str) -> bool:
         return table in columns_definitions
 
     @staticmethod
