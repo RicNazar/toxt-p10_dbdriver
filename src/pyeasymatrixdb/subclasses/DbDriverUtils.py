@@ -311,7 +311,7 @@ class DbDriverUtils:
             for idx, raw_value in enumerate(row):
                 if idx >= len(filters[0]) or idx >= len(filters[1]):
                     continue
-                if raw_value is None:
+                if not raw_value:
                     continue
 
                 table_name = filters[0][idx]
@@ -363,7 +363,7 @@ class DbDriverUtils:
                     _str_op = None
                     _str_val = raw_value
                     if isinstance(raw_value, str):
-                        for _op in ("!=", ">=", "<=", ">", "<"):
+                        for _op in ("!=", ">=", "<=", ">", "<", "=="):
                             if raw_value.startswith(_op):
                                 _str_op = _op
                                 _str_val = raw_value[len(_op):]
@@ -391,6 +391,14 @@ class DbDriverUtils:
                             col_conditions.append(column < parsed_val)
                         elif _str_op == "<=":
                             col_conditions.append(column <= parsed_val)
+                        elif _str_op == "==":
+                            if _str_val == "":
+                                if parsed_type == "TEXT":
+                                    col_conditions.append(or_(column.is_(None), column == ""))
+                                else:
+                                    col_conditions.append(column.is_(None))
+                            else:
+                                col_conditions.append(column == parsed_val)
                     else:
                         # wildcard em campos de texto: * apenas no início e/ou fim vira LIKE
                         _starts = isinstance(raw_value, str) and raw_value.startswith("*")
