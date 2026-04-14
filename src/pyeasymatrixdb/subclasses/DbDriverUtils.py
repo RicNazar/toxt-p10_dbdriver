@@ -98,35 +98,49 @@ class DbDriverUtils:
         relationships: List[List[Any]] = [],
         filters: List[List[Any]] = [],
     ):
+        # Valida se headers tem ao menos 2 linhas (tabelas e colunas)
         if not headers or len(headers) < 2:
             raise ValueError("Header inválido para select.")
 
+        # Coleta os objetos de coluna do SQLAlchemy para cada coluna solicitada
         columns = []
         for idx, column_name in enumerate(headers[1]):
             table_name = headers[0][idx]
             table_obj = columns_definitions[table_name][column_name]["table_obj"]
             columns.append(table_obj.c[column_name])
 
+        # Define a tabela base para a consulta
         base_table = columns_definitions[headers[0][0]][headers[1][0]]["table_obj"]
         from_clause = base_table
 
+        # Aplica joins baseado nos relacionamentos fornecidos
+        first_join_table = True
         for rel in reversed(relationships or []):
             if len(rel) < 4:
                 continue
 
             table_a, table_b, col_a, col_b = rel[0], rel[1], rel[2], rel[3]
             inner = True if len(rel) < 5 else bool(rel[4])
-
+            
             table_a_obj = columns_definitions[table_a][col_a]["table_obj"]
             table_b_obj = columns_definitions[table_b][col_b]["table_obj"]
             condition = table_a_obj.c[col_a] == table_b_obj.c[col_b]
 
-            if inner:
-                from_clause = from_clause.join(table_a_obj, condition)
-            else:
-                from_clause = from_clause.outerjoin(table_a_obj, condition)
+            # Altera o select from para a primeira tabela do join, garantindo que a ordem dos joins seja respeitada
+            if first_join_table:
+                from_clause = table_a_obj
+                first_join_table = False
 
+            # Aplica join interno ou externo
+            if inner:
+                from_clause = from_clause.join(table_b_obj, condition)
+            else:
+                from_clause = from_clause.outerjoin(table_b_obj, condition)
+
+        # Constrói o statement SELECT
         stmt = select(*columns).select_from(from_clause)
+        
+        # Adiciona filtros se fornecidos
         filter_condition = DbDriverUtils._build_filters(columns_definitions, filters)
         if filter_condition is not None:
             stmt = stmt.where(filter_condition)
