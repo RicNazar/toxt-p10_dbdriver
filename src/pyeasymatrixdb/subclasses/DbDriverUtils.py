@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from datetime import date, datetime, time
+from typing import Any, Dict, List, Tuple, TypedDict
 
 from sqlalchemy import MetaData, and_, delete, insert, or_, select, update
-from typing import TypedDict
 
 class ColumnDefinition(TypedDict):
     type: Any
@@ -317,13 +317,24 @@ class DbDriverUtils:
                 table_name = filters[0][idx]
                 col_name = filters[1][idx]
                 column = columns_definitions[table_name][col_name]["column_obj"]
-                value = DbDriverUtils._valid_info(str(column.type), raw_value)
+                value, _value_type = DbDriverUtils._valid_info(str(column.type), raw_value)
 
                 if isinstance(raw_value, tuple) and len(raw_value) == 2:
                     op, val = raw_value
-                    val = DbDriverUtils._valid_info(str(column.type), val)
+                    val, val_type = DbDriverUtils._valid_info(str(column.type), val)
                     if op == "!=":
-                        col_conditions.append(column != val)
+                        # TEXT com wildcard vira NOT LIKE
+                        if val_type == "TEXT" and isinstance(val, str):
+                            _w_starts = val.startswith("*")
+                            _w_ends = val.endswith("*")
+                            if _w_starts or _w_ends:
+                                _inner = val.lstrip("*").rstrip("*")
+                                _like = ("%" if _w_starts else "") + _inner + ("%" if _w_ends else "")
+                                col_conditions.append(column.notlike(_like))
+                            else:
+                                col_conditions.append(column != val)
+                        else:
+                            col_conditions.append(column != val)
                     elif op == ">":
                         col_conditions.append(column > val)
                     elif op == ">=":
@@ -335,9 +346,64 @@ class DbDriverUtils:
                     elif op == "like":
                         col_conditions.append(column.like(val))
                     else:
-                        col_conditions.append(column == val)
+                        # igualdade: TEXT com wildcard vira LIKE
+                        if val_type == "TEXT" and isinstance(val, str):
+                            _w_starts = val.startswith("*")
+                            _w_ends = val.endswith("*")
+                            if _w_starts or _w_ends:
+                                _inner = val.lstrip("*").rstrip("*")
+                                _like = ("%" if _w_starts else "") + _inner + ("%" if _w_ends else "")
+                                col_conditions.append(column.like(_like))
+                            else:
+                                col_conditions.append(column == val)
+                        else:
+                            col_conditions.append(column == val)
                 else:
-                    col_conditions.append(column == value)
+                    # operadores inline em string: ">=1", "!=OPEN", "<5", etc.
+                    _str_op = None
+                    _str_val = raw_value
+                    if isinstance(raw_value, str):
+                        for _op in ("!=", ">=", "<=", ">", "<"):
+                            if raw_value.startswith(_op):
+                                _str_op = _op
+                                _str_val = raw_value[len(_op):]
+                                break
+                    if _str_op is not None:
+                        parsed_val, parsed_type = DbDriverUtils._valid_info(str(column.type), _str_val)
+                        if _str_op == "!=":
+                            # TEXT com wildcard vira NOT LIKE
+                            if parsed_type == "TEXT" and isinstance(parsed_val, str):
+                                _w_starts = parsed_val.startswith("*")
+                                _w_ends = parsed_val.endswith("*")
+                                if _w_starts or _w_ends:
+                                    _inner = parsed_val.lstrip("*").rstrip("*")
+                                    _like = ("%" if _w_starts else "") + _inner + ("%" if _w_ends else "")
+                                    col_conditions.append(column.notlike(_like))
+                                else:
+                                    col_conditions.append(column != parsed_val)
+                            else:
+                                col_conditions.append(column != parsed_val)
+                        elif _str_op == ">":
+                            col_conditions.append(column > parsed_val)
+                        elif _str_op == ">=":
+                            col_conditions.append(column >= parsed_val)
+                        elif _str_op == "<":
+                            col_conditions.append(column < parsed_val)
+                        elif _str_op == "<=":
+                            col_conditions.append(column <= parsed_val)
+                    else:
+                        # wildcard em campos de texto: * apenas no início e/ou fim vira LIKE
+                        _starts = isinstance(raw_value, str) and raw_value.startswith("*")
+                        _ends = isinstance(raw_value, str) and raw_value.endswith("*")
+                        if isinstance(raw_value, str) and (_starts or _ends):
+                            if _value_type == "TEXT":
+                                inner = raw_value.lstrip("*").rstrip("*")
+                                like_val = ("%" if _starts else "") + inner + ("%" if _ends else "")
+                                col_conditions.append(column.like(like_val))
+                            else:
+                                col_conditions.append(column == value)
+                        else:
+                            col_conditions.append(column == value)
 
             if col_conditions:
                 row_conditions.append(and_(*col_conditions))
@@ -347,23 +413,74 @@ class DbDriverUtils:
         return or_(*row_conditions)
 
     @staticmethod
-    def _valid_info(type: str, info: Any) -> Any:
+    def _valid_info(type: str, info: Any) -> tuple[Any, str]:
         if info is None:
-            return None
+            return None, "OTHER"
 
-        type_upper = type.upper()
+        type_upper = type.upper().split("(")[0].strip()  # remove detalhes de tipo, ex: VARCHAR(255) → VARCHAR
         try:
+            # INTERVAL antes de INT para evitar falso match
+            if "INTERVAL" in type_upper:
+                return info, "OTHER"
+            # NUMBER
             if "INT" in type_upper:
-                return int(info)
-            if "FLOAT" in type_upper or "NUMERIC" in type_upper or "DECIMAL" in type_upper:
-                return float(info)
+                return int(info), "NUMBER"
+            if any(t in type_upper for t in ("FLOAT", "DOUBLE", "REAL", "NUMERIC", "DECIMAL")):
+                return float(info), "NUMBER"
+            # BOOLEAN
             if "BOOL" in type_upper:
                 if isinstance(info, bool):
-                    return info
-                return str(info).strip().lower() in ("1", "true", "t", "y", "yes")
-            return info
+                    return info, "BOOLEAN"
+                return str(info).strip().lower() in ("1", "true", "t", "y", "yes"), "BOOLEAN"
+            # DATETIME/TIMESTAMP antes de DATE para evitar match parcial
+            if any(t in type_upper for t in ("DATETIME", "TIMESTAMP")):
+                if isinstance(info, datetime):
+                    return info, "DATE"
+                if isinstance(info, date):
+                    return datetime(info.year, info.month, info.day), "DATE"
+                # ISO 8601 / JSON: suporta timezone offset (+00:00) e Z (UTC)
+                try:
+                    return datetime.fromisoformat(str(info).strip().replace("Z", "+00:00")), "DATE"
+                except ValueError:
+                    pass
+                for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y"):
+                    try:
+                        return datetime.strptime(str(info).strip(), fmt), "DATE"
+                    except ValueError:
+                        continue
+                return info, "DATE"
+            if "DATE" in type_upper:
+                if isinstance(info, datetime):
+                    return info.date(), "DATE"
+                if isinstance(info, date):
+                    return info, "DATE"
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y%m%d"):
+                    try:
+                        return datetime.strptime(str(info).strip(), fmt).date(), "DATE"
+                    except ValueError:
+                        continue
+                return info, "DATE"
+            if "TIME" in type_upper:
+                if isinstance(info, time):
+                    return info, "DATE"
+                # ISO 8601: HH:MM:SS.ffffff e HH:MM:SS+00:00
+                try:
+                    return time.fromisoformat(str(info).strip().replace("Z", "+00:00")), "DATE"
+                except ValueError:
+                    pass
+                for fmt in ("%H:%M:%S.%f", "%H:%M:%S", "%H:%M"):
+                    try:
+                        return datetime.strptime(str(info).strip(), fmt).time(), "DATE"
+                    except ValueError:
+                        continue
+                return info, "DATE"
+            # TEXT
+            if any(t in type_upper for t in ("VARCHAR", "CHAR", "TEXT", "CLOB", "STRING", "NCHAR", "NVARCHAR", "UNICODE", "ENUM")):
+                return str(info), "TEXT"
+            # Outros (BLOB, BINARY, JSON, UUID, ARRAY, etc.)
+            return info, "OTHER"
         except Exception:
-            return info
+            return info, "OTHER"
 
     @staticmethod
     def to_matrix_from_records(column_names: List[str], records: List[List[Any]]) -> List[List[Any]]:
