@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import Any, Dict, List, Tuple, TypedDict
 
-from sqlalchemy import MetaData, and_, delete, insert, or_, select, update
+from sqlalchemy import MetaData, and_, delete, exists, insert, literal, or_, select, update
 
 class ColumnDefinition(TypedDict):
     type: Any
@@ -243,17 +243,19 @@ class DbDriverUtils:
     def buid_insert(
         columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
         data: List[List[Any]],
+        filters: List[List[Any]] = [],
     ):
         if not data or len(data) < 3:
             raise ValueError("Dados inválidos para insert.")
 
         table_name = data[0][0]
         table_obj = columns_definitions[table_name][data[1][0]]["table_obj"]
-        md_idx = len(data[1])-1
+        md_idx = len(data[1]) - 1
 
         rows = []
         for row in data[2:]:
-            if md_idx != -1 and md_idx < len(row) and row[md_idx] in ("D",):
+            # Ignora linhas marcadas para remoção
+            if md_idx != -1 and md_idx < len(row) and row[md_idx] == "D":
                 continue
 
             values = {}
@@ -261,11 +263,26 @@ class DbDriverUtils:
                 if col_name == "MD":
                     continue
                 if idx < len(row):
-                    values[col_name] = row[idx]
+                    # Converte o valor para o tipo correto da coluna
+                    col_type = str(columns_definitions[table_name][col_name]["type"])
+                    val, _ = DbDriverUtils._valid_info(col_type, row[idx])
+                    values[col_name] = val
             rows.append(values)
 
         if not rows:
             return None
+
+        # Se filtro fornecido, insere apenas onde nenhuma linha correspondente existe
+        filter_cond = DbDriverUtils._build_filters(columns_definitions, filters)
+        if filter_cond is not None:
+            first_col = next(iter(table_obj.c))
+            stmts = []
+            for rv in rows:
+                col_names = list(rv.keys())
+                not_exists = ~exists(select(first_col).where(filter_cond))
+                sel = select(*[literal(v).label(c) for c, v in rv.items()]).where(not_exists)
+                stmts.append(insert(table_obj).from_select(col_names, sel))
+            return stmts
 
         return insert(table_obj).values(rows)
 
