@@ -1,4 +1,4 @@
-﻿# pyEasyDb
+﻿# pyEasyMatrixDb
 
 Biblioteca Python para consultar e modificar bancos de dados usando **matrizes bidimensionais** como interface.  
 Abstrai SELECT, INSERT, UPDATE e DELETE via SQLAlchemy Core — funciona com qualquer banco suportado (SQLite, PostgreSQL, MySQL, etc.).
@@ -15,7 +15,7 @@ https://github.com/RicNazar/toxt-p10_dbdriver
 
 ## Início Rápido
 
-```pythons
+```python
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, ForeignKey
 
 # Cria uma engine em memória
@@ -37,7 +37,7 @@ orders = Table("orders", metadata,
 # Cria as tabelas caso não existam
 metadata.create_all(engine)
 
-from pyeasydb import DbDriver
+from pyeasymatrixdb import DbDriver
 db = DbDriver(metadata, engine)
 ```
 
@@ -137,8 +137,10 @@ resultado = db.Pesquisar.define_header(header).search(complete=True, default=Non
 
 A coluna `MD` (última) controla a operação por linha:
 
-- `"U"` / `"A"` → Upsert (UPDATE se PK existe ou exclusivo Filtro, INSERT caso contrário)
-- `"D"` → DELETE (exige PK ou exclusifi Filtro)
+- `"U"` / `"A"` → upsert
+- `"D"` → delete
+
+`update()` retorna uma lista simples com os IDs afetados ou inseridos.
 
 #### Upsert (update + insert)
 
@@ -153,6 +155,8 @@ resultado = (
     ])
     .update()
 )
+
+# → [1, 5]
 ```
 
 #### Delete
@@ -167,6 +171,8 @@ resultado = (
     ])
     .update()
 )
+
+# → []
 ```
 
 #### Atualização com filtro extra
@@ -186,14 +192,19 @@ resultado = (
     ])
     .update()
 )
+
+# → [100]
 ```
 
-#### Retorno completo
+#### Batch automático
 
 ```python
-resultado = db.Atualizar.define_data(data).update(complete=True, default="<vazio>")
-# Expande a saída para todas as colunas das tabelas, preenchendo ausentes com o default.
+resultado = db.Atualizar.define_data(data).update()
 ```
+
+Quando há mais de 20 linhas e todas usam `"U"` ou `"A"` com PK presente no `data`, o driver agrupa updates e inserts em lote automaticamente.
+
+Para evitar limites grandes de parâmetros no banco, a leitura prévia das PKs existentes é feita em blocos de até 900 IDs.
 
 ---
 

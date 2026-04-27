@@ -93,7 +93,7 @@ class DbDriverUtils:
 
     @staticmethod
     def buid_select(
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         headers: List[List[Any]],
         relationships: List[List[Any]] = [],
         filters: List[List[Any]] = [],
@@ -149,7 +149,7 @@ class DbDriverUtils:
 
     @staticmethod
     def buid_update(
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         data: List[List[Any]],
         relationships: List[List[Any]] = [],
         filters: List[List[Any]] = [],
@@ -215,7 +215,7 @@ class DbDriverUtils:
                     if len(values) != 1:
                         raise ValueError("Dados inválidos para update. Quando não há chave primária, deve haver exatamente uma linha com atualizações.")
                     extra_filter = DbDriverUtils._build_filters(columns_definitions, filters)
-                    if not extra_filter:
+                    if extra_filter is None:
                         raise ValueError("Dados inválidos para update. Filtro inválido ou sem correspondência.")
                     relationships_filter = None
                     if relationships:
@@ -241,7 +241,7 @@ class DbDriverUtils:
 
     @staticmethod
     def buid_insert(
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         data: List[List[Any]],
         filters: List[List[Any]] = [],
     ):
@@ -288,7 +288,7 @@ class DbDriverUtils:
 
     @staticmethod
     def buid_delete(
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         keys: List[List[Any]] = [],
         relationships: List[List[Any]] = [],
         filters: List[List[Any]] = [],
@@ -316,7 +316,7 @@ class DbDriverUtils:
 
     @staticmethod
     def _build_filters(
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         filters: List[List[Any]],
     ):
         if not filters or len(filters) < 3:
@@ -520,7 +520,7 @@ class DbDriverUtils:
 
     @staticmethod
     def expand_structure(
-        columns_definitions: Dict[str, Dict[str, Dict[str, Any]]],
+        columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         matrix: List[List[Any]],
         include_md: bool = False,
     ) -> Tuple[List[Any], List[Any], List[int]]:

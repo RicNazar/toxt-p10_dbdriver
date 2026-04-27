@@ -7,6 +7,9 @@ def print_block(title: str, rows):
 		print("(sem dados)")
 		return
 
+	if rows and not isinstance(rows[0], (list, tuple)):
+		rows = [[row] for row in rows]
+
 	# Normaliza tudo para string para calcular largura de cada coluna.
 	str_rows = [["null" if cell is None else str(cell) for cell in row] for row in rows]
 	col_count = max(len(row) for row in str_rows)
@@ -149,13 +152,6 @@ def demo_update(driver: DbDriver):
 	result_upsert = driver.Atualizar.define_data(update_data).update(reset=True)
 	print_block("Atualizar.update retorno no formato de data", result_upsert)
 
-	result_upsert_complete = (
-		driver.Atualizar
-		.define_data(update_data)
-		.update(reset=True, complete=True, default=None)
-	)
-	print_block("Atualizar.update complete=True (default=None)", result_upsert_complete)
-
 	delete_data = [
 		["orders", "orders", "orders", "orders"],
 		["id", "user_id", "product", "MD"],
@@ -185,13 +181,22 @@ def demo_update(driver: DbDriver):
 	)
 	print_block("Atualizar.update com filtro extra", result_guarded)
 
-	result_guarded_complete_custom = (
-		driver.Atualizar
-		.define_data(guarded_update_data)
-		.define_filter(guarded_filter)
-		.update(reset=True, complete=True, default="<vazio>")
-	)
-	print_block("Atualizar.update complete=True (default='<vazio>')", result_guarded_complete_custom)
+
+def demo_update_batch(driver: DbDriver):
+	batch_data: list[list[object]] = [
+		["users", "users", "users", "users"],
+		["id", "name", "email", "MD"],
+	]
+
+	for idx in range(30):
+		user_id = 10 + idx
+		batch_data.append([user_id, f"Batch User {user_id}", f"batch{user_id}@acme.com", "U"])
+
+	result_batch = driver.Atualizar.define_data(batch_data).update(reset=True)
+	print_block("Atualizar.update batch com 30 linhas novas", result_batch)
+
+	batch_rows = driver.execute("SELECT id, name, email FROM users WHERE id >= 10 ORDER BY id")
+	print_block("Estado após batch insert de 30 linhas", batch_rows)
 
 
 def show_final_state(driver: DbDriver):
@@ -213,6 +218,7 @@ def main():
 	demo_execute(driver, users)
 	demo_search(driver)
 	demo_update(driver)
+	demo_update_batch(driver)
 	show_final_state(driver)
 
 

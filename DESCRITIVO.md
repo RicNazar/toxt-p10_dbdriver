@@ -59,7 +59,9 @@ Matriz **≥ 3 linhas × N colunas** usada em operações de escrita (insert/upd
 Valores aceitos na coluna `MD`:
 
 - `"U"` / `"A"` → Atualização (se PK existir e registro encontrado) ou Inserção (caso contrário).
-- `"D"` → Remoção (exige PK presente no data).
+- `"D"` → Remoção.
+
+`update()` retorna `List[Any]` com os IDs afetados ou inseridos.
 
 ```python
 data = [
@@ -93,7 +95,7 @@ relationships = [
 
 ## Modelos de Dados (saída)
 
-Toda saída é uma **matriz bidimensional** com a mesma estrutura:
+Saídas de leitura e execução SQL retornam uma **matriz bidimensional** com a mesma estrutura:
 
 | Linha | Conteúdo                                                         |
 | ----- | ---------------------------------------------------------------- |
@@ -101,9 +103,11 @@ Toda saída é uma **matriz bidimensional** com a mesma estrutura:
 | 1     | Nome da coluna                                                   |
 | 2+    | Registros retornados                                             |
 
-Quando `complete=True`, a saída é expandida para incluir **todas** as colunas das tabelas envolvidas (preenchendo com `default` as ausentes).
+Quando `complete=True`, a saída de `search()` é expandida para incluir **todas** as colunas das tabelas envolvidas (preenchendo com `default` as ausentes).
 
 Para `execute()` / `execute_stmt()` sem linhas de retorno, a saída é `[["__meta__"], ["rowcount"], [n]]`.
+
+Para `update()`, a saída é uma lista simples de IDs, por exemplo: `[1, 5, 9]`.
 
 ---
 
@@ -182,13 +186,15 @@ DbDriverCore(metadata: MetaData, engine: Engine)
 | Método                                             | Entrada     | Saída       | Descrição                                                                              |
 | -------------------------------------------------- | ----------- | ----------- | -------------------------------------------------------------------------------------- |
 | `define_data(data)`                                | Matriz data | `self`      | Valida colunas (incluindo MD) e salva `self.data_positions`, `self.data`               |
-| `update(reset=True, complete=False, default=None)` | —           | Matriz data | Executa U/A (upsert) e D (delete) linha a linha; `complete=True` expande todas colunas |
+| `update(reset=True)`                              | —           | `List[Any]` | Executa U/A (upsert) e D (delete), retornando os IDs afetados ou inseridos             |
 
 Regras de `update()`:
 
 - `"U"` / `"A"`: se PK presente e registro existe → UPDATE; senão → INSERT (valida colunas obrigatórias).
-- `"D"`: exige PK; executa DELETE.
+- `"D"`: executa DELETE por PK quando disponível; sem PK, usa as colunas informadas com valor.
 - Filtro extra (via `define_filter`) é adicionado como `WHERE` adicional.
+- Com mais de 20 linhas `U/A` e PK presente no `data`, o driver usa batch automático para agrupar updates e inserts.
+- A leitura das PKs existentes antes do batch é feita em blocos de até 900 IDs.
 
 ---
 
