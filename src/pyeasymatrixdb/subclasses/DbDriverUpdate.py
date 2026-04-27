@@ -38,6 +38,52 @@ class DbDriverUpdate(DbDriverCore):
         self.data = [[row[i] if i < len(row) else None for i in positions] for row in data]
         return self
 
+    def _fill_first_integer_column(
+        self,
+        data: List[List[Any]],
+        table_name: str,
+        first_header: str,
+        md_idx: int,
+    ) -> None:
+        first_column_info = self._columns_definitions[table_name][first_header]
+        first_column_type = str(first_column_info["type"]).upper()
+        if "INT" not in first_column_type:
+            return
+
+        table_obj = first_column_info["table_obj"]
+        current_max = conn_max = None
+
+        with self._engine.begin() as conn:
+            conn_max = conn.execute(
+                select(table_obj.c[first_header]).order_by(table_obj.c[first_header].desc()).limit(1)
+            ).scalar()
+
+        explicit_values = [
+            row[0]
+            for row in data[2:]
+            if row
+            and len(row) > 0
+            and row[0] is not None
+            and (md_idx >= len(row) or str(row[md_idx]) != "D")
+        ]
+
+        numeric_values = [int(value) for value in explicit_values if isinstance(value, int)]
+        if conn_max is not None:
+            numeric_values.append(int(conn_max))
+
+        current_max = max(numeric_values, default=0)
+
+        for row in data[2:]:
+            if not row or len(row) <= 0:
+                continue
+            if md_idx < len(row) and str(row[md_idx]) == "D":
+                continue
+            if row[0] is not None:
+                continue
+
+            current_max += 1
+            row[0] = current_max
+
     def _should_use_batch_upsert(
         self,
         data: List[List[Any]],
@@ -70,9 +116,10 @@ class DbDriverUpdate(DbDriverCore):
         pk_col: str,
         extra_filter,
     ) -> List[Any]:
-        batch_rows: List[dict[str, Any]] = []
+        rows_with_pk: List[tuple[int, dict[str, Any]]] = []
+        rows_without_pk: List[tuple[int, dict[str, Any]]] = []
 
-        for row in data[2:]:
+        for row_offset, row in enumerate(data[2:]):
             if md_idx >= len(row):
                 continue
 
@@ -90,22 +137,25 @@ class DbDriverUpdate(DbDriverCore):
 
             pk_value = values.get(pk_col)
             if pk_value is None:
-                raise ValueError(
-                    f"Marcador '{raw_marker}' sem PK nos dados requer número de colunas where (ex: A2, U2)."
-                )
+                values_without_pk = dict(values)
+                values_without_pk.pop(pk_col, None)
+                rows_without_pk.append((row_offset, values_without_pk))
+                continue
 
-            batch_rows.append(values)
+            rows_with_pk.append((row_offset, values))
 
-        if not batch_rows:
+        if not rows_with_pk and not rows_without_pk:
             return []
 
         with self._engine.begin() as conn:
             # Descobre quais PKs já existem antes de separar update de insert.
             existing_pks = set()
-            batch_pks = [values[pk_col] for values in batch_rows]
+            batch_pks = [values[pk_col] for _, values in rows_with_pk]
 
             for start in range(0, len(batch_pks), self._BATCH_CHUNK_SIZE):
                 chunk = batch_pks[start:start + self._BATCH_CHUNK_SIZE]
+                if not chunk:
+                    continue
                 existing_pks.update(
                     row[0]
                     for row in conn.execute(
@@ -115,10 +165,11 @@ class DbDriverUpdate(DbDriverCore):
 
             known_pks = set(existing_pks)
             update_groups: dict[tuple[str, ...], List[dict[str, Any]]] = {}
-            insert_groups: dict[tuple[str, ...], List[dict[str, Any]]] = {}
-            result_ids: List[Any] = []
+            insert_groups: dict[tuple[str, ...], List[tuple[int, dict[str, Any]]]] = {}
+            generated_insert_rows: List[tuple[int, dict[str, Any]]] = []
+            result_map: dict[int, Any] = {}
 
-            for values in batch_rows:
+            for row_offset, values in rows_with_pk:
                 pk_value = values[pk_col]
                 set_keys = tuple(k for k in values if k != pk_col)
 
@@ -127,6 +178,7 @@ class DbDriverUpdate(DbDriverCore):
                         # Agrupa updates com o mesmo conjunto de colunas para usar executemany.
                         params = {"pk_match": pk_value, **{k: values[k] for k in set_keys}}
                         update_groups.setdefault(set_keys, []).append(params)
+                    result_map[row_offset] = pk_value
                 else:
                     missing = [
                         c for c, info in self._columns_definitions[table_name].items()
@@ -142,10 +194,24 @@ class DbDriverUpdate(DbDriverCore):
                         )
 
                     # Agrupa inserts com a mesma estrutura de colunas.
-                    insert_groups.setdefault(tuple(values.keys()), []).append(values)
+                    insert_groups.setdefault(tuple(values.keys()), []).append((row_offset, values))
                     known_pks.add(pk_value)
+                    result_map[row_offset] = pk_value
 
-                result_ids.append(pk_value)
+            for row_offset, values in rows_without_pk:
+                missing = [
+                    c for c, info in self._columns_definitions[table_name].items()
+                    if c not in values
+                    and not info["primary"]
+                    and not info["nullable"]
+                    and info["default"] is None
+                ]
+                if missing:
+                    raise ValueError(
+                        "Insert inválido: faltam colunas obrigatórias sem default: "
+                        + ", ".join(missing)
+                    )
+                generated_insert_rows.append((row_offset, values))
 
             for set_keys, params_list in update_groups.items():
                 stmt = update(table_obj).where(table_obj.c[pk_col] == bindparam("pk_match"))
@@ -155,9 +221,14 @@ class DbDriverUpdate(DbDriverCore):
                 conn.execute(stmt, params_list)
 
             for _, rows in insert_groups.items():
-                conn.execute(insert(table_obj), rows)
+                conn.execute(insert(table_obj), [values for _, values in rows])
 
-        return result_ids
+            for row_offset, values in generated_insert_rows:
+                result = conn.execute(insert(table_obj).values(**values))
+                new_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
+                result_map[row_offset] = new_id
+
+        return [result_map[row_offset] for row_offset in sorted(result_map)]
 
     def update(self, reset: bool = True) -> List[Any]:
         if not hasattr(self, "data"):
@@ -174,6 +245,7 @@ class DbDriverUpdate(DbDriverCore):
 
         table_name = str(data[0][0])
         first_header = str(data[1][0])
+        self._fill_first_integer_column(data, table_name, first_header, md_idx)
         table_columns = self._columns_definitions[table_name]
         table_obj = table_columns[first_header]["table_obj"]
         pk_col_raw = self._primary_keys.get(table_name)

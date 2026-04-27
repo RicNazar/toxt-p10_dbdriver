@@ -183,10 +183,10 @@ DbDriverCore(metadata: MetaData, engine: Engine)
 
 ### DbDriverUpdate (herda DbDriverCore)
 
-| Método                                             | Entrada     | Saída       | Descrição                                                                              |
-| -------------------------------------------------- | ----------- | ----------- | -------------------------------------------------------------------------------------- |
-| `define_data(data)`                                | Matriz data | `self`      | Valida colunas (incluindo MD) e salva `self.data_positions`, `self.data`               |
-| `update(reset=True)`                              | —           | `List[Any]` | Executa U/A (upsert) e D (delete), retornando os IDs afetados ou inseridos             |
+| Método               | Entrada     | Saída       | Descrição                                                                  |
+| -------------------- | ----------- | ----------- | -------------------------------------------------------------------------- |
+| `define_data(data)`  | Matriz data | `self`      | Valida colunas (incluindo MD) e salva `self.data_positions`, `self.data`   |
+| `update(reset=True)` | —           | `List[Any]` | Executa U/A (upsert) e D (delete), retornando os IDs afetados ou inseridos |
 
 Regras de `update()`:
 
