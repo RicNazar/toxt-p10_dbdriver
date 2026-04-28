@@ -109,33 +109,61 @@ class DbDriverUtils:
             table_obj = columns_definitions[table_name][column_name]["table_obj"]
             columns.append(table_obj.c[column_name])
 
-        # Define a tabela base para a consulta
-        base_table = columns_definitions[headers[0][0]][headers[1][0]]["table_obj"]
+        # Define a tabela base para a consulta a partir do primeiro header solicitado.
+        base_table_name = headers[0][0]
+        base_table = columns_definitions[base_table_name][headers[1][0]]["table_obj"]
         from_clause = base_table
 
-        # Aplica joins baseado nos relacionamentos fornecidos
-        first_join_table = True
-        for rel in reversed(relationships or []):
-            if len(rel) < 4:
-                continue
+        # Encadeia os relacionamentos a partir da tabela base, evitando repetir tabelas já incluídas.
+        joined_tables = {base_table_name}
+        pending_relationships = [rel for rel in (relationships or []) if len(rel) >= 4]
 
-            table_a, table_b, col_a, col_b = rel[0], rel[1], rel[2], rel[3]
-            inner = True if len(rel) < 5 else bool(rel[4])
-            
-            table_a_obj = columns_definitions[table_a][col_a]["table_obj"]
-            table_b_obj = columns_definitions[table_b][col_b]["table_obj"]
-            condition = table_a_obj.c[col_a] == table_b_obj.c[col_b]
+        while pending_relationships:
+            remaining_relationships = []
+            progressed = False
 
-            # Altera o select from para a primeira tabela do join, garantindo que a ordem dos joins seja respeitada
-            if first_join_table:
-                from_clause = table_a_obj
-                first_join_table = False
+            for rel in pending_relationships:
+                table_a, table_b, col_a, col_b = rel[0], rel[1], rel[2], rel[3]
+                inner = True if len(rel) < 5 else bool(rel[4])
 
-            # Aplica join interno ou externo
-            if inner:
-                from_clause = from_clause.join(table_b_obj, condition)
-            else:
-                from_clause = from_clause.outerjoin(table_b_obj, condition)
+                if table_a in joined_tables and table_b not in joined_tables:
+                    source_table, target_table = table_a, table_b
+                    source_column, target_column = col_a, col_b
+                elif table_b in joined_tables and table_a not in joined_tables:
+                    source_table, target_table = table_b, table_a
+                    source_column, target_column = col_b, col_a
+                elif table_a in joined_tables and table_b in joined_tables:
+                    progressed = True
+                    continue
+                else:
+                    remaining_relationships.append(rel)
+                    continue
+
+                source_table_obj = columns_definitions[source_table][source_column]["table_obj"]
+                target_table_obj = columns_definitions[target_table][target_column]["table_obj"]
+                condition = source_table_obj.c[source_column] == target_table_obj.c[target_column]
+
+                if inner:
+                    from_clause = from_clause.join(target_table_obj, condition)
+                else:
+                    from_clause = from_clause.outerjoin(target_table_obj, condition)
+
+                joined_tables.add(target_table)
+                progressed = True
+
+            if not progressed:
+                break
+
+            pending_relationships = remaining_relationships
+
+        required_tables = set(headers[0])
+        if filters and len(filters) >= 2:
+            required_tables.update(filters[0])
+
+        missing_tables = sorted(table for table in required_tables if table not in joined_tables)
+        if missing_tables:
+            missing = ", ".join(missing_tables)
+            raise ValueError(f"Relacionamentos insuficientes para conectar as tabelas do select: {missing}")
 
         # Constrói o statement SELECT
         stmt = select(*columns).select_from(from_clause)
