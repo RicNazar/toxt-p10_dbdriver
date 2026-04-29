@@ -138,7 +138,7 @@ class DbDriverUtils:
 
                 # Caso primeira from_clause recebe a primeira tabela
                 if primeira_rel:
-                    from_clause = new_table_obj
+                    from_clause = added_table_obj
                     primeira_rel = False
 
                 # Adiciona a nova tabela
