@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyEasyMatrixDb"
-version = "0.2.6"
+version = "0.2.9"
 description = "Easiest way to search and update a database using matrix like queries"
 requires-python = ">=3.10"
 dependencies = ["sqlalchemy>=2.0"]

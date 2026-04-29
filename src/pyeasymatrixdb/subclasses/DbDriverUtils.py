@@ -114,57 +114,47 @@ class DbDriverUtils:
         base_table = columns_definitions[base_table_name][headers[1][0]]["table_obj"]
         from_clause = base_table
 
-        # Encadeia os relacionamentos a partir da tabela base, evitando repetir tabelas já incluídas.
-        joined_tables = {base_table_name}
-        pending_relationships = [rel for rel in (relationships or []) if len(rel) >= 4]
+        # Lista as tabelas necessárias pelo header
+        necesary_tables = set(headers[0])
 
-        while pending_relationships:
-            remaining_relationships = []
-            progressed = False
+        # Adiciona em necesart_tables as tabelas do filtro caso exista
+        if filters and len(filters) >= 2:
+            necesary_tables.update(filters[0])
 
-            for rel in pending_relationships:
+        #Remove a tabela base
+        necesary_tables.discard(base_table_name)
+        
+        # processa os relacionamentos
+        if relationships:
+            # Varre os relacionamentos de trás para frente gerando inner joins por padrão, ou left outer joins se especificado
+            primeira_rel = True
+            for rel in reversed(relationships):
                 table_a, table_b, col_a, col_b = rel[0], rel[1], rel[2], rel[3]
                 inner = True if len(rel) < 5 else bool(rel[4])
 
-                if table_a in joined_tables and table_b not in joined_tables:
-                    source_table, target_table = table_a, table_b
-                    source_column, target_column = col_a, col_b
-                elif table_b in joined_tables and table_a not in joined_tables:
-                    source_table, target_table = table_b, table_a
-                    source_column, target_column = col_b, col_a
-                elif table_a in joined_tables and table_b in joined_tables:
-                    progressed = True
-                    continue
-                else:
-                    remaining_relationships.append(rel)
-                    continue
+                new_table_obj = columns_definitions[table_a][col_a]["table_obj"]
+                added_table_obj = columns_definitions[table_b][col_b]["table_obj"]
+                condition = new_table_obj.c[col_a] == added_table_obj.c[col_b]
 
-                source_table_obj = columns_definitions[source_table][source_column]["table_obj"]
-                target_table_obj = columns_definitions[target_table][target_column]["table_obj"]
-                condition = source_table_obj.c[source_column] == target_table_obj.c[target_column]
+                # Caso primeira from_clause recebe a primeira tabela
+                if primeira_rel:
+                    from_clause = new_table_obj
+                    primeira_rel = False
 
+                # Adiciona a nova tabela
                 if inner:
-                    from_clause = from_clause.join(target_table_obj, condition)
+                    from_clause = from_clause.join(new_table_obj, condition)
                 else:
-                    from_clause = from_clause.outerjoin(target_table_obj, condition)
+                    from_clause = from_clause.outerjoin(new_table_obj, condition)
+                
+                #Remove de necesary_tables caso exista a table_a
+                necesary_tables.discard(table_a)
 
-                joined_tables.add(target_table)
-                progressed = True
-
-            if not progressed:
-                break
-
-            pending_relationships = remaining_relationships
-
-        required_tables = set(headers[0])
-        if filters and len(filters) >= 2:
-            required_tables.update(filters[0])
-
-        missing_tables = sorted(table for table in required_tables if table not in joined_tables)
-        if missing_tables:
-            missing = ", ".join(missing_tables)
+        # Testa caso esteja faltando alguma tabela necessária para o header que não foi incluída nos relacionamentos
+        if necesary_tables:
+            missing = ", ".join(necesary_tables)
             raise ValueError(f"Relacionamentos insuficientes para conectar as tabelas do select: {missing}")
-
+        
         # Constrói o statement SELECT
         stmt = select(*columns).select_from(from_clause)
         

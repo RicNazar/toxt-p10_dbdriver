@@ -45,7 +45,7 @@ class DbDriverSearch(DbDriverCore):
 
                     # coleta o tipo de self._columns_definitions e verifica se é string não vazia sem operadores de comparação
                     if valid_table and valid_column:
-                        column_type = str(self.columns_definitions[filters[0][0]][filters[0][1]]["column_obj"].type).upper()
+                        column_type = str(self._columns_definitions[filters[0][0]][filters[0][1]]["column_obj"].type).upper()
                         is_text =  any(t in column_type for t in ("VARCHAR", "CHAR", "TEXT", "CLOB", "STRING", "NCHAR", "NVARCHAR", "UNICODE", "ENUM"))
                         if is_text and val.strip() and not val.startswith(("!=", ">=", "<=", ">", "<", "*")) and not val.endswith("*"):
                             new_row.append(f"*{val.strip()}*")
