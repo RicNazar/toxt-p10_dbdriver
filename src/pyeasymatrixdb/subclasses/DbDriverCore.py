@@ -20,8 +20,8 @@ class DbDriverCore:
                 continue
             delattr(self, attr)
 
-    def define_filter(self, filter: List[List[Any]]):
-        positions, valid_filter = DbDriverUtils.get_valid_columns(self._columns_definitions, filter)
+    def define_filter(self, filter: List[List[Any]],debug: bool = False):
+        positions, valid_filter = DbDriverUtils.get_valid_columns(columns_definitions= self._columns_definitions,matrix = filter,debug=debug)
         self.filter_positions = positions
         self.filter = valid_filter
         return self

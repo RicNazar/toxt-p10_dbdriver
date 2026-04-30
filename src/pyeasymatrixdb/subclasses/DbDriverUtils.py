@@ -54,6 +54,7 @@ class DbDriverUtils:
     def get_valid_columns(
         columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         matrix: List[List[Any]],
+        debug: bool = False,
     ) -> Tuple[List[int], List[List[Any]]]:
         #valida se a matriz tem ao menos 2 linhas
         if not matrix or len(matrix) < 2:
@@ -79,6 +80,9 @@ class DbDriverUtils:
                 and column_name in columns_definitions[table_name]
             ):
                 valid_positions.append(idx)
+            else:
+                if debug:
+                    print(f"Coluna inválida ignorada: {table_name}.{column_name} (posição {idx})")
 
         if not valid_positions:
             raise ValueError("Nenhuma coluna válida foi encontrada na matriz.")
