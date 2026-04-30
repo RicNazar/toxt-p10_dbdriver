@@ -135,7 +135,7 @@ class DbDriverUtils:
             primeira_rel = True
             for rel in reversed(relationships):
                 table_a, table_b, col_a, col_b = rel[0], rel[1], rel[2], rel[3]
-                inner = True if len(rel) < 5 else bool(rel[4])
+                inner = False if len(rel) < 5 else bool(rel[4])
 
                 new_table_obj = columns_definitions[table_a][col_a]["table_obj"]
                 added_table_obj = columns_definitions[table_b][col_b]["table_obj"]
