@@ -21,11 +21,14 @@ class DbDriverSearch(DbDriverCore):
         self.table = valid_header[0][0] if valid_header and valid_header[0] else None
         return self
 
-    def search(self, reset: bool = True, complete: bool = False, default: Any = None,approximate: bool = False) -> List[List[Any]]:
+
+    def search(self, reset: bool = True, complete: bool = False, default: Any = None,approximate: bool = False,only_stmt: bool = False,debug: bool = False) -> List[List[Any]]:
         # reset: limpa o estado após a busca
         # complete: retorna todas as colunas do header original (incluindo inválidas), preenchendo ausentes com `default`
         # default: valor para colunas ausentes no resultado da query quando `complete=True`
         # approximate: se True, adiciona * no início e fim das colunas não vazias do filtro para busca aproximada (LIKE '%valor%')
+        # only_stmt: se True, retorna apenas a instrução SQL sem executá-la
+        # debug: se True, imprime informações de depuração
 
         if not hasattr(self, "header"):
             raise ValueError("Header não definido. Use define_header antes de pesquisar.")
@@ -63,7 +66,11 @@ class DbDriverSearch(DbDriverCore):
             headers=self.header,
             relationships=relationships,
             filters=filters,
+            debug=debug
         )
+
+        if only_stmt:
+            return [[str(stmt)]]
 
         with self._engine.connect() as conn:
             result = conn.execute(stmt)

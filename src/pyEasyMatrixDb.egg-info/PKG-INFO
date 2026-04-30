@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pyEasyMatrixDb
-Version: 0.2.8
+Version: 0.2.10
 Summary: Easiest way to search and update a database using matrix like queries
 Author-email: Ricardo Nazar Rodrigues <ricardo@toxt.com.br>
 Requires-Python: >=3.10

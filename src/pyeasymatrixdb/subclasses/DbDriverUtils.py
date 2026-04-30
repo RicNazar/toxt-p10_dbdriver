@@ -97,6 +97,7 @@ class DbDriverUtils:
         headers: List[List[Any]],
         relationships: List[List[Any]] = [],
         filters: List[List[Any]] = [],
+        debug: bool = False,
     ):
         # Valida se headers tem ao menos 2 linhas (tabelas e colunas)
         if not headers or len(headers) < 2:
@@ -159,9 +160,12 @@ class DbDriverUtils:
         stmt = select(*columns).select_from(from_clause)
         
         # Adiciona filtros se fornecidos
-        filter_condition = DbDriverUtils._build_filters(columns_definitions, filters)
+        filter_condition = DbDriverUtils._build_filters(columns_definitions= columns_definitions, filters=filters, debug=debug)
         if filter_condition is not None:
             stmt = stmt.where(filter_condition)
+
+        if debug:
+            print(f"SELECT statement: {stmt}")
 
         return stmt
 
@@ -336,6 +340,7 @@ class DbDriverUtils:
     def _build_filters(
         columns_definitions: Dict[str, Dict[str, ColumnDefinition]],
         filters: List[List[Any]],
+        debug: bool = False,
     ):
         if not filters or len(filters) < 3:
             return None
@@ -343,6 +348,8 @@ class DbDriverUtils:
         row_conditions = []
         for row in filters[2:]:
             col_conditions = []
+            if debug:
+                print(f"Processing filter row: {row}")
             for idx, raw_value in enumerate(row):
                 if idx >= len(filters[0]) or idx >= len(filters[1]):
                     continue
@@ -353,106 +360,97 @@ class DbDriverUtils:
                 col_name = filters[1][idx]
                 column = columns_definitions[table_name][col_name]["column_obj"]
                 value, _value_type = DbDriverUtils._valid_info(str(column.type), raw_value)
+                
+                if debug:
+                    print(f"  Column: {table_name}.{col_name} (type: {_value_type}), Raw value: {raw_value}, Parsed value: {value}")
+                
+                # operadores inline em string: ">=1", "!=OPEN", "<5", etc.
+                _str_op = None
+                _str_val = raw_value
+                
+                # Separa o operador caso exista (number e date)
+                if isinstance(raw_value, str) and _value_type in ("NUMBER", "DATE"):
+                    for _op in ("!=", ">=", "<=", ">", "<", "=="):
+                        if raw_value.startswith(_op):
+                            _str_op = _op
+                            _str_val = raw_value[len(_op):]
+                            break
+                
+                # Separa o operador caso exista (text)
+                if isinstance(raw_value, str) and _value_type == "TEXT":
+                    for _op in ("!=", "=="):
+                        if raw_value.startswith(_op):
+                            _str_op = _op
+                            _str_val = raw_value[len(_op):]
+                            break
 
-                if isinstance(raw_value, tuple) and len(raw_value) == 2:
-                    op, val = raw_value
-                    val, val_type = DbDriverUtils._valid_info(str(column.type), val)
-                    if op == "!=":
+                # Caso tenha operador avalia
+                if _str_op is not None:
+                    parsed_val, parsed_type = DbDriverUtils._valid_info(str(column.type), _str_val)
+                    if _str_op == "!=":
                         # TEXT com wildcard vira NOT LIKE
-                        if val_type == "TEXT" and isinstance(val, str):
-                            _w_starts = val.startswith("*")
-                            _w_ends = val.endswith("*")
+                        if parsed_type == "TEXT" and isinstance(parsed_val, str):
+                            _w_starts = parsed_val.startswith("*")
+                            _w_ends = parsed_val.endswith("*")
                             if _w_starts or _w_ends:
-                                _inner = val.lstrip("*").rstrip("*")
+                                _inner = parsed_val.lstrip("*").rstrip("*")
                                 _like = ("%" if _w_starts else "") + _inner + ("%" if _w_ends else "")
                                 col_conditions.append(column.notlike(_like))
                             else:
-                                col_conditions.append(column != val)
-                        else:
-                            col_conditions.append(column != val)
-                    elif op == ">":
-                        col_conditions.append(column > val)
-                    elif op == ">=":
-                        col_conditions.append(column >= val)
-                    elif op == "<":
-                        col_conditions.append(column < val)
-                    elif op == "<=":
-                        col_conditions.append(column <= val)
-                    elif op == "like":
-                        col_conditions.append(column.like(val))
-                    else:
-                        # igualdade: TEXT com wildcard vira LIKE
-                        if val_type == "TEXT" and isinstance(val, str):
-                            _w_starts = val.startswith("*")
-                            _w_ends = val.endswith("*")
-                            if _w_starts or _w_ends:
-                                _inner = val.lstrip("*").rstrip("*")
-                                _like = ("%" if _w_starts else "") + _inner + ("%" if _w_ends else "")
-                                col_conditions.append(column.like(_like))
-                            else:
-                                col_conditions.append(column == val)
-                        else:
-                            col_conditions.append(column == val)
-                else:
-                    # operadores inline em string: ">=1", "!=OPEN", "<5", etc.
-                    _str_op = None
-                    _str_val = raw_value
-                    if isinstance(raw_value, str):
-                        for _op in ("!=", ">=", "<=", ">", "<", "=="):
-                            if raw_value.startswith(_op):
-                                _str_op = _op
-                                _str_val = raw_value[len(_op):]
-                                break
-                    if _str_op is not None:
-                        parsed_val, parsed_type = DbDriverUtils._valid_info(str(column.type), _str_val)
-                        if _str_op == "!=":
-                            # TEXT com wildcard vira NOT LIKE
-                            if parsed_type == "TEXT" and isinstance(parsed_val, str):
-                                _w_starts = parsed_val.startswith("*")
-                                _w_ends = parsed_val.endswith("*")
-                                if _w_starts or _w_ends:
-                                    _inner = parsed_val.lstrip("*").rstrip("*")
-                                    _like = ("%" if _w_starts else "") + _inner + ("%" if _w_ends else "")
-                                    col_conditions.append(column.notlike(_like))
-                                else:
-                                    col_conditions.append(column != parsed_val)
-                            else:
                                 col_conditions.append(column != parsed_val)
-                        elif _str_op == ">":
-                            col_conditions.append(column > parsed_val)
-                        elif _str_op == ">=":
-                            col_conditions.append(column >= parsed_val)
-                        elif _str_op == "<":
-                            col_conditions.append(column < parsed_val)
-                        elif _str_op == "<=":
-                            col_conditions.append(column <= parsed_val)
-                        elif _str_op == "==":
-                            if _str_val == "":
-                                if parsed_type == "TEXT":
-                                    col_conditions.append(or_(column.is_(None), column == ""))
-                                else:
-                                    col_conditions.append(column.is_(None))
+                        else:
+                            col_conditions.append(column != parsed_val)
+                    elif _str_op == ">":
+                        col_conditions.append(column > parsed_val)
+                    elif _str_op == ">=":
+                        col_conditions.append(column >= parsed_val)
+                    elif _str_op == "<":
+                        col_conditions.append(column < parsed_val)
+                    elif _str_op == "<=":
+                        col_conditions.append(column <= parsed_val)
+                    elif _str_op == "==":
+                        if _str_val == "":
+                            if parsed_type == "TEXT":
+                                col_conditions.append(or_(column.is_(None), column == ""))
+                            else:
+                                col_conditions.append(column.is_(None))
+                        else:
+                            if parsed_type == "TEXT":
+                                col_conditions.append(column.like(_str_val))
                             else:
                                 col_conditions.append(column == parsed_val)
-                    else:
-                        # wildcard em campos de texto: * apenas no início e/ou fim vira LIKE
-                        _starts = isinstance(raw_value, str) and raw_value.startswith("*")
-                        _ends = isinstance(raw_value, str) and raw_value.endswith("*")
-                        if isinstance(raw_value, str) and (_starts or _ends):
-                            if _value_type == "TEXT":
-                                inner = raw_value.lstrip("*").rstrip("*")
-                                like_val = ("%" if _starts else "") + inner + ("%" if _ends else "")
-                                col_conditions.append(column.like(like_val))
-                            else:
-                                col_conditions.append(column == value)
+                else:
+                    # wildcard em campos de texto: * apenas no início e/ou fim vira LIKE
+                    _starts = isinstance(raw_value, str) and raw_value.startswith("*")
+                    _ends = isinstance(raw_value, str) and raw_value.endswith("*")
+                    if isinstance(raw_value, str) and (_starts or _ends):
+                        if _value_type == "TEXT":
+                            inner = raw_value.lstrip("*").rstrip("*")
+                            like_val = ("%" if _starts else "") + inner + ("%" if _ends else "")
+                            col_conditions.append(column.like(like_val))
                         else:
                             col_conditions.append(column == value)
+                    else:
+                        col_conditions.append(column == value)
+                
+                #Debug cond criada
+                if debug:
+                    print(f"    operation: {_str_op if _str_op else '=='} on column {table_name}.{col_name} with value {value} (parsed from '{raw_value}')")
+                    print(f"    Condition added: {col_conditions[-1]}")
+
 
             if col_conditions:
-                row_conditions.append(and_(*col_conditions))
+                if len(col_conditions) == 1:
+                    row_conditions.append(col_conditions[0])
+                else:
+                    row_conditions.append(and_(*col_conditions))
 
         if not row_conditions:
             return None
+
+        if len(row_conditions) == 1:
+            return row_conditions[0]
+        
         return or_(*row_conditions)
 
     @staticmethod

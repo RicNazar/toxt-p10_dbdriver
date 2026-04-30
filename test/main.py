@@ -92,9 +92,10 @@ def demo_search(driver: DbDriver):
 	]
 
 	filters_open = [
-		["orders"],
-		["status"],
-		["OPEN"],
+		["orders","orders"],
+		["status","status"],
+		["OPEN",""],
+		["","CLOS"]
 	]
 
 	rows_join = (
@@ -102,7 +103,7 @@ def demo_search(driver: DbDriver):
 		.define_header(header_join)
 		.define_relationships(relationships)
 		.define_filter(filters_open)
-		.search(reset=True)
+		.search(reset=True,debug=True)
 	)
 	print_block("Pesquisar.search com header + relationships + filter", rows_join)
 
@@ -129,15 +130,6 @@ def demo_search(driver: DbDriver):
 
 	rows_or = driver.Pesquisar.define_header(header_users).define_filter(filters_or).search(reset=True)
 	print_block("Pesquisar.search com filtro OR (duas linhas)", rows_or)
-
-	# Filtro com operador de tupla: id > 1
-	filters_tuple = [
-		["users"],
-		["id"],
-		[(">", 1)],
-	]
-	rows_tuple = driver.Pesquisar.define_header(header_users).define_filter(filters_tuple).search(reset=True)
-	print_block("Pesquisar.search com filtro tupla (id > 1)", rows_tuple)
 
 
 def demo_update(driver: DbDriver):
@@ -207,7 +199,7 @@ def show_final_state(driver: DbDriver):
 
 
 def main():
-	engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+	engine = create_engine("sqlite+pysqlite:///:memory:", future=True, echo=True)
 	metadata = MetaData()
 	users, _ = build_schema(metadata)
 	metadata.create_all(engine)
@@ -215,10 +207,10 @@ def main():
 	driver = DbDriver(metadata, engine)
 
 	seed_data(driver)
-	demo_execute(driver, users)
+	#demo_execute(driver, users)
 	demo_search(driver)
-	demo_update(driver)
-	demo_update_batch(driver)
+	#demo_update(driver)
+	#demo_update_batch(driver)
 	show_final_state(driver)
 
 
