@@ -34,6 +34,7 @@ Matriz **≥ 3 linhas × N colunas** que define critérios de filtragem (cláusu
 
 - **Entre colunas** (mesma linha): condição `AND`.
 - **Entre linhas** (linhas distintas): condição `OR`.
+- **Mesma coluna repetida na mesma linha sem operador explícito**: condição `OR` entre os valores dessa coluna.
 - Suporta operadores via tupla: `("!=", valor)`, `(">", valor)`, `(">=", valor)`, `("<", valor)`, `("<=", valor)`, `("like", valor)`.
 
 ```python

@@ -351,7 +351,7 @@ class DbDriverUtils:
 
         row_conditions = []
         for row in filters[2:]:
-            col_conditions = []
+            col_conditions_by_column: Dict[Tuple[str, str], List[Tuple[Any, bool]]] = {}
             if debug:
                 print(f"Processing filter row: {row}")
             for idx, raw_value in enumerate(row):
@@ -389,6 +389,7 @@ class DbDriverUtils:
                             break
 
                 # Caso tenha operador avalia
+                condition = None
                 if _str_op is not None:
                     parsed_val, parsed_type = DbDriverUtils._valid_info(str(column.type), _str_val)
                     if _str_op == "!=":
@@ -399,30 +400,30 @@ class DbDriverUtils:
                             if _w_starts or _w_ends:
                                 _inner = parsed_val.lstrip("*").rstrip("*")
                                 _like = ("%" if _w_starts else "") + _inner + ("%" if _w_ends else "")
-                                col_conditions.append(column.notlike(_like))
+                                condition = column.notlike(_like)
                             else:
-                                col_conditions.append(column != parsed_val)
+                                condition = column != parsed_val
                         else:
-                            col_conditions.append(column != parsed_val)
+                            condition = column != parsed_val
                     elif _str_op == ">":
-                        col_conditions.append(column > parsed_val)
+                        condition = column > parsed_val
                     elif _str_op == ">=":
-                        col_conditions.append(column >= parsed_val)
+                        condition = column >= parsed_val
                     elif _str_op == "<":
-                        col_conditions.append(column < parsed_val)
+                        condition = column < parsed_val
                     elif _str_op == "<=":
-                        col_conditions.append(column <= parsed_val)
+                        condition = column <= parsed_val
                     elif _str_op == "==":
                         if _str_val == "":
                             if parsed_type == "TEXT":
-                                col_conditions.append(or_(column.is_(None), column == ""))
+                                condition = or_(column.is_(None), column == "")
                             else:
-                                col_conditions.append(column.is_(None))
+                                condition = column.is_(None)
                         else:
                             if parsed_type == "TEXT":
-                                col_conditions.append(column.like(_str_val))
+                                condition = column.like(_str_val)
                             else:
-                                col_conditions.append(column == parsed_val)
+                                condition = column == parsed_val
                 else:
                     # wildcard em campos de texto: * apenas no início e/ou fim vira LIKE
                     _starts = isinstance(raw_value, str) and raw_value.startswith("*")
@@ -431,23 +432,39 @@ class DbDriverUtils:
                         if _value_type == "TEXT":
                             inner = raw_value.lstrip("*").rstrip("*")
                             like_val = ("%" if _starts else "") + inner + ("%" if _ends else "")
-                            col_conditions.append(column.like(like_val))
+                            condition = column.like(like_val)
                         else:
-                            col_conditions.append(column == value)
+                            condition = column == value
                     else:
-                        col_conditions.append(column == value)
+                        condition = column == value
                 
+                if condition is None:
+                    continue
+
+                key = (table_name, col_name)
+                col_conditions_by_column.setdefault(key, []).append((condition, _str_op is not None))
+
                 #Debug cond criada
                 if debug:
                     print(f"    operation: {_str_op if _str_op else '=='} on column {table_name}.{col_name} with value {value} (parsed from '{raw_value}')")
-                    print(f"    Condition added: {col_conditions[-1]}")
+                    print(f"    Condition added: {condition}")
 
 
-            if col_conditions:
-                if len(col_conditions) == 1:
-                    row_conditions.append(col_conditions[0])
+            if col_conditions_by_column:
+                merged_col_conditions = []
+                for conditions in col_conditions_by_column.values():
+                    if len(conditions) == 1:
+                        merged_col_conditions.append(conditions[0][0])
+                        continue
+                    if all(not has_operator for _, has_operator in conditions):
+                        merged_col_conditions.append(or_(*[cond for cond, _ in conditions]))
+                    else:
+                        merged_col_conditions.extend([cond for cond, _ in conditions])
+
+                if len(merged_col_conditions) == 1:
+                    row_conditions.append(merged_col_conditions[0])
                 else:
-                    row_conditions.append(and_(*col_conditions))
+                    row_conditions.append(and_(*merged_col_conditions))
 
         if not row_conditions:
             return None

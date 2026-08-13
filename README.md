@@ -113,6 +113,8 @@ resultado = (
 )
 ```
 
+Quando a mesma coluna aparece mais de uma vez **na mesma linha de filtro** sem operador explícito (`!=`, `>=`, `<=`, `>`, `<`, `==`), as condições dessa coluna também passam a usar `OR`.
+
 #### Filtro com operadores
 
 ```python
