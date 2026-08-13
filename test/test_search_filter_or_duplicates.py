@@ -52,13 +52,13 @@ class SearchFilterDuplicateColumnTests(unittest.TestCase):
             .define_header([["users", "users"], ["id", "name"]])
             .define_filter([
                 ["users", "users"],
-                ["id", "id"],
-                [">1", "<3"],
+                ["name", "name"],
+                ["==Ana", "==Bruno"],
             ])
             .search()
         )
 
-        self.assertEqual(rows[2:], [[2, "Bruno"]])
+        self.assertEqual(rows[2:], [])
 
 
 if __name__ == "__main__":

@@ -12,3 +12,4 @@ src/pyeasymatrixdb/subclasses/DbDriverSearch.py
 src/pyeasymatrixdb/subclasses/DbDriverUpdate.py
 src/pyeasymatrixdb/subclasses/DbDriverUtils.py
 src/pyeasymatrixdb/subclasses/__init__.py
+test/test_search_filter_or_duplicates.py
