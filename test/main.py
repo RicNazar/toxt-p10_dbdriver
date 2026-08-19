@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table, create_engine, select
+from sqlalchemy import Column, Connection, ForeignKey, Integer, MetaData, String, Table, create_engine, select
 from pyeasymatrixdb import DbDriver
 
 def print_block(title: str, rows):
@@ -204,7 +204,8 @@ def main():
 	users, _ = build_schema(metadata)
 	metadata.create_all(engine)
 
-	driver = DbDriver(metadata, engine)
+	connection: Connection = engine.connect()
+	driver = DbDriver(metadata, connection)
 
 	seed_data(driver)
 	#demo_execute(driver, users)
@@ -212,6 +213,7 @@ def main():
 	#demo_update(driver)
 	#demo_update_batch(driver)
 	show_final_state(driver)
+	connection.close()
 
 
 if __name__ == "__main__":

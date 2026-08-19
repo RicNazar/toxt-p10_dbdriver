@@ -4,13 +4,13 @@ from typing import Any, List
 
 from .DbDriverUtils import DbDriverUtils
 
-from sqlalchemy import Engine, MetaData
+from sqlalchemy import Connection, MetaData
 
 
 class DbDriverCore:
-    def __init__(self, metadata:MetaData, engine:Engine):
+    def __init__(self, metadata:MetaData, connection:Connection):
         self._metadata = metadata
-        self._engine = engine
+        self._connection = connection
         self._columns_definitions = DbDriverUtils.get_columns_definitions(metadata)
         self._primary_keys = DbDriverUtils.get_primary_keys(metadata)
 

@@ -53,8 +53,8 @@ class DbDriverUpdate(DbDriverCore):
         table_obj = first_column_info["table_obj"]
         current_max = conn_max = None
 
-        with self._engine.begin() as conn:
-            conn_max = conn.execute(
+        with self._connection.begin():
+            conn_max = self._connection.execute(
                 select(table_obj.c[first_header]).order_by(table_obj.c[first_header].desc()).limit(1)
             ).scalar()
 
@@ -147,7 +147,7 @@ class DbDriverUpdate(DbDriverCore):
         if not rows_with_pk and not rows_without_pk:
             return []
 
-        with self._engine.begin() as conn:
+        with self._connection.begin():
             # Descobre quais PKs já existem antes de separar update de insert.
             existing_pks = set()
             batch_pks = [values[pk_col] for _, values in rows_with_pk]
@@ -158,7 +158,7 @@ class DbDriverUpdate(DbDriverCore):
                     continue
                 existing_pks.update(
                     row[0]
-                    for row in conn.execute(
+                    for row in self._connection.execute(
                         select(table_obj.c[pk_col]).where(table_obj.c[pk_col].in_(chunk))
                     )
                 )
@@ -218,13 +218,13 @@ class DbDriverUpdate(DbDriverCore):
                 if extra_filter is not None:
                     stmt = stmt.where(extra_filter)
                 stmt = stmt.values({col: bindparam(col) for col in set_keys})
-                conn.execute(stmt, params_list)
+                self._connection.execute(stmt, params_list)
 
             for _, rows in insert_groups.items():
-                conn.execute(insert(table_obj), [values for _, values in rows])
+                self._connection.execute(insert(table_obj), [values for _, values in rows])
 
             for row_offset, values in generated_insert_rows:
-                result = conn.execute(insert(table_obj).values(**values))
+                result = self._connection.execute(insert(table_obj).values(**values))
                 new_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
                 result_map[row_offset] = new_id
 
@@ -271,7 +271,7 @@ class DbDriverUpdate(DbDriverCore):
 
         result_ids: List[Any] = []
 
-        with self._engine.begin() as conn:
+        with self._connection.begin():
             for row in data[2:]:
                 if md_idx >= len(row):
                     continue
@@ -308,7 +308,7 @@ class DbDriverUpdate(DbDriverCore):
                         stmt = delete(table_obj).where(and_(*conds))
                     if extra_filter is not None:
                         stmt = stmt.where(extra_filter)
-                    conn.execute(stmt)
+                    self._connection.execute(stmt)
                     continue
 
                 # --- UPSERT (A/U) ---
@@ -319,13 +319,13 @@ class DbDriverUpdate(DbDriverCore):
                         upd = update(table_obj).where(table_obj.c[pk_col] == pk_value).values(**set_vals)
                         if extra_filter is not None:
                             upd = upd.where(extra_filter)
-                        updated = conn.execute(upd).rowcount or 0
+                        updated = self._connection.execute(upd).rowcount or 0
                         if updated > 0:
                             result_ids.append(pk_value)
                             continue
 
                     # Verifica existência para evitar inserção duplicada
-                    exists = conn.execute(
+                    exists = self._connection.execute(
                         select(table_obj.c[pk_col]).where(table_obj.c[pk_col] == pk_value).limit(1)
                     ).first() is not None
                     if exists:
@@ -344,7 +344,7 @@ class DbDriverUpdate(DbDriverCore):
                     upd = update(table_obj).where(and_(*where_conds)).values(**set_vals)
                     if extra_filter is not None:
                         upd = upd.where(extra_filter)
-                    updated = conn.execute(upd).rowcount or 0
+                    updated = self._connection.execute(upd).rowcount or 0
                     if updated > 0:
                         result_ids.append(pk_value)
                         continue
@@ -368,7 +368,7 @@ class DbDriverUpdate(DbDriverCore):
                         + ", ".join(missing)
                     )
 
-                result = conn.execute(insert(table_obj).values(**values))
+                result = self._connection.execute(insert(table_obj).values(**values))
                 new_id = result.inserted_primary_key[0] if result.inserted_primary_key else pk_value
                 result_ids.append(new_id)
 

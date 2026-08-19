@@ -72,8 +72,8 @@ class DbDriverSearch(DbDriverCore):
         if only_stmt:
             return [[str(stmt)]]
 
-        with self._engine.connect() as conn:
-            result = conn.execute(stmt)
+        with self._connection.begin():
+            result = self._connection.execute(stmt)
             records = [list(row) for row in result]
 
         if complete:

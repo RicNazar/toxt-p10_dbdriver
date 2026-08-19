@@ -38,7 +38,8 @@ orders = Table("orders", metadata,
 metadata.create_all(engine)
 
 from pyeasymatrixdb import DbDriver
-db = DbDriver(metadata, engine)
+connection = engine.connect()
+db = DbDriver(metadata, connection)
 ```
 
 ## Funcionalidades

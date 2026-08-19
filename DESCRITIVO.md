@@ -142,7 +142,7 @@ Dicionário `tabela → nome_coluna_pk` (`None` se não houver PK).
 Classe principal — ponto de entrada da biblioteca.
 
 ```python
-DbDriver(metadata: MetaData, engine: Engine)
+DbDriver(metadata: MetaData, connection: Connection)
 ```
 
 | Atributo    | Tipo             | Descrição                 |
@@ -160,7 +160,7 @@ DbDriver(metadata: MetaData, engine: Engine)
 ### DbDriverCore (classe base)
 
 ```python
-DbDriverCore(metadata: MetaData, engine: Engine)
+DbDriverCore(metadata: MetaData, connection: Connection)
 ```
 
 | Método                                | Entrada             | Saída  | Descrição                                                     |
