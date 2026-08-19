@@ -53,10 +53,10 @@ class DbDriverUpdate(DbDriverCore):
         table_obj = first_column_info["table_obj"]
         current_max = conn_max = None
 
-        with self._connection.begin():
-            conn_max = self._connection.execute(
-                select(table_obj.c[first_header]).order_by(table_obj.c[first_header].desc()).limit(1)
-            ).scalar()
+
+        conn_max = self._connection.execute(
+            select(table_obj.c[first_header]).order_by(table_obj.c[first_header].desc()).limit(1)
+        ).scalar()
 
         explicit_values = [
             row[0]
@@ -147,58 +147,38 @@ class DbDriverUpdate(DbDriverCore):
         if not rows_with_pk and not rows_without_pk:
             return []
 
-        with self._connection.begin():
-            # Descobre quais PKs já existem antes de separar update de insert.
-            existing_pks = set()
-            batch_pks = [values[pk_col] for _, values in rows_with_pk]
+        # Descobre quais PKs já existem antes de separar update de insert.
+        existing_pks = set()
+        batch_pks = [values[pk_col] for _, values in rows_with_pk]
 
-            for start in range(0, len(batch_pks), self._BATCH_CHUNK_SIZE):
-                chunk = batch_pks[start:start + self._BATCH_CHUNK_SIZE]
-                if not chunk:
-                    continue
-                existing_pks.update(
-                    row[0]
-                    for row in self._connection.execute(
-                        select(table_obj.c[pk_col]).where(table_obj.c[pk_col].in_(chunk))
-                    )
+        for start in range(0, len(batch_pks), self._BATCH_CHUNK_SIZE):
+            chunk = batch_pks[start:start + self._BATCH_CHUNK_SIZE]
+            if not chunk:
+                continue
+            existing_pks.update(
+                row[0]
+                for row in self._connection.execute(
+                    select(table_obj.c[pk_col]).where(table_obj.c[pk_col].in_(chunk))
                 )
+            )
 
-            known_pks = set(existing_pks)
-            update_groups: dict[tuple[str, ...], List[dict[str, Any]]] = {}
-            insert_groups: dict[tuple[str, ...], List[tuple[int, dict[str, Any]]]] = {}
-            generated_insert_rows: List[tuple[int, dict[str, Any]]] = []
-            result_map: dict[int, Any] = {}
+        known_pks = set(existing_pks)
+        update_groups: dict[tuple[str, ...], List[dict[str, Any]]] = {}
+        insert_groups: dict[tuple[str, ...], List[tuple[int, dict[str, Any]]]] = {}
+        generated_insert_rows: List[tuple[int, dict[str, Any]]] = []
+        result_map: dict[int, Any] = {}
 
-            for row_offset, values in rows_with_pk:
-                pk_value = values[pk_col]
-                set_keys = tuple(k for k in values if k != pk_col)
+        for row_offset, values in rows_with_pk:
+            pk_value = values[pk_col]
+            set_keys = tuple(k for k in values if k != pk_col)
 
-                if pk_value in known_pks:
-                    if set_keys:
-                        # Agrupa updates com o mesmo conjunto de colunas para usar executemany.
-                        params = {"pk_match": pk_value, **{k: values[k] for k in set_keys}}
-                        update_groups.setdefault(set_keys, []).append(params)
-                    result_map[row_offset] = pk_value
-                else:
-                    missing = [
-                        c for c, info in self._columns_definitions[table_name].items()
-                        if c not in values
-                        and not info["primary"]
-                        and not info["nullable"]
-                        and info["default"] is None
-                    ]
-                    if missing:
-                        raise ValueError(
-                            "Insert inválido: faltam colunas obrigatórias sem default: "
-                            + ", ".join(missing)
-                        )
-
-                    # Agrupa inserts com a mesma estrutura de colunas.
-                    insert_groups.setdefault(tuple(values.keys()), []).append((row_offset, values))
-                    known_pks.add(pk_value)
-                    result_map[row_offset] = pk_value
-
-            for row_offset, values in rows_without_pk:
+            if pk_value in known_pks:
+                if set_keys:
+                    # Agrupa updates com o mesmo conjunto de colunas para usar executemany.
+                    params = {"pk_match": pk_value, **{k: values[k] for k in set_keys}}
+                    update_groups.setdefault(set_keys, []).append(params)
+                result_map[row_offset] = pk_value
+            else:
                 missing = [
                     c for c, info in self._columns_definitions[table_name].items()
                     if c not in values
@@ -211,22 +191,41 @@ class DbDriverUpdate(DbDriverCore):
                         "Insert inválido: faltam colunas obrigatórias sem default: "
                         + ", ".join(missing)
                     )
-                generated_insert_rows.append((row_offset, values))
 
-            for set_keys, params_list in update_groups.items():
-                stmt = update(table_obj).where(table_obj.c[pk_col] == bindparam("pk_match"))
-                if extra_filter is not None:
-                    stmt = stmt.where(extra_filter)
-                stmt = stmt.values({col: bindparam(col) for col in set_keys})
-                self._connection.execute(stmt, params_list)
+                # Agrupa inserts com a mesma estrutura de colunas.
+                insert_groups.setdefault(tuple(values.keys()), []).append((row_offset, values))
+                known_pks.add(pk_value)
+                result_map[row_offset] = pk_value
 
-            for _, rows in insert_groups.items():
-                self._connection.execute(insert(table_obj), [values for _, values in rows])
+        for row_offset, values in rows_without_pk:
+            missing = [
+                c for c, info in self._columns_definitions[table_name].items()
+                if c not in values
+                and not info["primary"]
+                and not info["nullable"]
+                and info["default"] is None
+            ]
+            if missing:
+                raise ValueError(
+                    "Insert inválido: faltam colunas obrigatórias sem default: "
+                    + ", ".join(missing)
+                )
+            generated_insert_rows.append((row_offset, values))
 
-            for row_offset, values in generated_insert_rows:
-                result = self._connection.execute(insert(table_obj).values(**values))
-                new_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
-                result_map[row_offset] = new_id
+        for set_keys, params_list in update_groups.items():
+            stmt = update(table_obj).where(table_obj.c[pk_col] == bindparam("pk_match"))
+            if extra_filter is not None:
+                stmt = stmt.where(extra_filter)
+            stmt = stmt.values({col: bindparam(col) for col in set_keys})
+            self._connection.execute(stmt, params_list)
+
+        for _, rows in insert_groups.items():
+            self._connection.execute(insert(table_obj), [values for _, values in rows])
+
+        for row_offset, values in generated_insert_rows:
+            result = self._connection.execute(insert(table_obj).values(**values))
+            new_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
+            result_map[row_offset] = new_id
 
         return [result_map[row_offset] for row_offset in sorted(result_map)]
 
