@@ -271,77 +271,51 @@ class DbDriverUpdate(DbDriverCore):
 
         result_ids: List[Any] = []
 
-        with self._connection.begin():
-            for row in data[2:]:
-                if md_idx >= len(row):
-                    continue
+        for row in data[2:]:
+            if md_idx >= len(row):
+                continue
 
-                raw_marker = str(row[md_idx]) if row[md_idx] is not None else ""
-                # Extrai base (A/U/D) e número opcional (ex: "U2" → base="U", n=2)
-                m = re.fullmatch(r"([AUD])(\d+)?", raw_marker)
-                if not m:
-                    raise ValueError(f"Valor inválido na coluna MD: {raw_marker}")
+            raw_marker = str(row[md_idx]) if row[md_idx] is not None else ""
+            # Extrai base (A/U/D) e número opcional (ex: "U2" → base="U", n=2)
+            m = re.fullmatch(r"([AUD])(\d+)?", raw_marker)
+            if not m:
+                raise ValueError(f"Valor inválido na coluna MD: {raw_marker}")
 
-                base = m.group(1)
-                n = int(m.group(2)) if m.group(2) else None
+            base = m.group(1)
+            n = int(m.group(2)) if m.group(2) else None
 
-                # Converte os valores usando _valid_info para garantir tipos corretos
-                values = {}
-                for idx, col_name in enumerate(headers):
-                    if idx < len(row):
-                        col_type = str(self._columns_definitions[table_name][col_name]["type"])
-                        val, _ = DbDriverUtils._valid_info(col_type, row[idx])
-                        values[col_name] = val
+            # Converte os valores usando _valid_info para garantir tipos corretos
+            values = {}
+            for idx, col_name in enumerate(headers):
+                if idx < len(row):
+                    col_type = str(self._columns_definitions[table_name][col_name]["type"])
+                    val, _ = DbDriverUtils._valid_info(col_type, row[idx])
+                    values[col_name] = val
 
-                pk_value = values.get(pk_col) if pk_col else None
+            pk_value = values.get(pk_col) if pk_col else None
 
-                # --- DELETE ---
-                if base == "D":
-                    if pk_idx is not None and pk_value is not None:
-                        # Remoção por PK
-                        stmt = delete(table_obj).where(table_obj.c[pk_col] == pk_value)
-                    else:
-                        # Remoção por todas as colunas passadas com valor
-                        conds = [table_obj.c[c] == v for c, v in values.items() if v is not None]
-                        if not conds:
-                            continue
-                        stmt = delete(table_obj).where(and_(*conds))
-                    if extra_filter is not None:
-                        stmt = stmt.where(extra_filter)
-                    self._connection.execute(stmt)
-                    continue
-
-                # --- UPSERT (A/U) ---
+            # --- DELETE ---
+            if base == "D":
                 if pk_idx is not None and pk_value is not None:
-                    # PK presente: tenta update, senão verifica existência e insere
-                    set_vals = {k: v for k, v in values.items() if k != pk_col}
-                    if set_vals:
-                        upd = update(table_obj).where(table_obj.c[pk_col] == pk_value).values(**set_vals)
-                        if extra_filter is not None:
-                            upd = upd.where(extra_filter)
-                        updated = self._connection.execute(upd).rowcount or 0
-                        if updated > 0:
-                            result_ids.append(pk_value)
-                            continue
-
-                    # Verifica existência para evitar inserção duplicada
-                    exists = self._connection.execute(
-                        select(table_obj.c[pk_col]).where(table_obj.c[pk_col] == pk_value).limit(1)
-                    ).first() is not None
-                    if exists:
-                        result_ids.append(pk_value)
+                    # Remoção por PK
+                    stmt = delete(table_obj).where(table_obj.c[pk_col] == pk_value)
+                else:
+                    # Remoção por todas as colunas passadas com valor
+                    conds = [table_obj.c[c] == v for c, v in values.items() if v is not None]
+                    if not conds:
                         continue
+                    stmt = delete(table_obj).where(and_(*conds))
+                if extra_filter is not None:
+                    stmt = stmt.where(extra_filter)
+                self._connection.execute(stmt)
+                continue
 
-                elif n is not None:
-                    # n primeiras colunas são WHERE, restante é SET
-                    if n <= 0 or n >= len(headers):
-                        raise ValueError(f"Número de colunas where inválido em '{raw_marker}'.")
-                    where_conds = [table_obj.c[c] == values[c] for c in headers[:n] if c in values]
-                    set_vals = {c: values[c] for c in headers[n:] if c in values and values[c] is not None}
-                    if not where_conds or not set_vals:
-                        continue
-
-                    upd = update(table_obj).where(and_(*where_conds)).values(**set_vals)
+            # --- UPSERT (A/U) ---
+            if pk_idx is not None and pk_value is not None:
+                # PK presente: tenta update, senão verifica existência e insere
+                set_vals = {k: v for k, v in values.items() if k != pk_col}
+                if set_vals:
+                    upd = update(table_obj).where(table_obj.c[pk_col] == pk_value).values(**set_vals)
                     if extra_filter is not None:
                         upd = upd.where(extra_filter)
                     updated = self._connection.execute(upd).rowcount or 0
@@ -349,28 +323,53 @@ class DbDriverUpdate(DbDriverCore):
                         result_ids.append(pk_value)
                         continue
 
-                else:
-                    raise ValueError(
-                        f"Marcador '{raw_marker}' sem PK nos dados requer número de colunas where (ex: A2, U2)."
-                    )
+                # Verifica existência para evitar inserção duplicada
+                exists = self._connection.execute(
+                    select(table_obj.c[pk_col]).where(table_obj.c[pk_col] == pk_value).limit(1)
+                ).first() is not None
+                if exists:
+                    result_ids.append(pk_value)
+                    continue
 
-                # INSERT (chegou aqui quando update não encontrou linha)
-                missing = [
-                    c for c, info in self._columns_definitions[table_name].items()
-                    if c not in values
-                    and not info["primary"]
-                    and not info["nullable"]
-                    and info["default"] is None
-                ]
-                if missing:
-                    raise ValueError(
-                        "Insert inválido: faltam colunas obrigatórias sem default: "
-                        + ", ".join(missing)
-                    )
+            elif n is not None:
+                # n primeiras colunas são WHERE, restante é SET
+                if n <= 0 or n >= len(headers):
+                    raise ValueError(f"Número de colunas where inválido em '{raw_marker}'.")
+                where_conds = [table_obj.c[c] == values[c] for c in headers[:n] if c in values]
+                set_vals = {c: values[c] for c in headers[n:] if c in values and values[c] is not None}
+                if not where_conds or not set_vals:
+                    continue
 
-                result = self._connection.execute(insert(table_obj).values(**values))
-                new_id = result.inserted_primary_key[0] if result.inserted_primary_key else pk_value
-                result_ids.append(new_id)
+                upd = update(table_obj).where(and_(*where_conds)).values(**set_vals)
+                if extra_filter is not None:
+                    upd = upd.where(extra_filter)
+                updated = self._connection.execute(upd).rowcount or 0
+                if updated > 0:
+                    result_ids.append(pk_value)
+                    continue
+
+            else:
+                raise ValueError(
+                    f"Marcador '{raw_marker}' sem PK nos dados requer número de colunas where (ex: A2, U2)."
+                )
+
+            # INSERT (chegou aqui quando update não encontrou linha)
+            missing = [
+                c for c, info in self._columns_definitions[table_name].items()
+                if c not in values
+                and not info["primary"]
+                and not info["nullable"]
+                and info["default"] is None
+            ]
+            if missing:
+                raise ValueError(
+                    "Insert inválido: faltam colunas obrigatórias sem default: "
+                    + ", ".join(missing)
+                )
+
+            result = self._connection.execute(insert(table_obj).values(**values))
+            new_id = result.inserted_primary_key[0] if result.inserted_primary_key else pk_value
+            result_ids.append(new_id)
 
         if reset:
             self.reset()
