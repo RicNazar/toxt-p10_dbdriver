@@ -27,7 +27,9 @@ class DbDriverUtils:
             columns_definitions[table_name] = {}
             for col in table_obj.columns:
                 default_value = None
-                if col.default is not None:
+                if col.server_default is not None:
+                    default_value = getattr(col.server_default, "arg", col.server_default)
+                elif col.default is not None:
                     default_value = getattr(col.default, "arg", col.default)
 
                 columns_definitions[table_name][col.name] = {
