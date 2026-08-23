@@ -1,4 +1,7 @@
+from collections.abc import Callable
+from src.pyeasymatrixdb.DbDriver import DbDriver
 from sqlalchemy import (
+    Connection,
     create_engine,
     MetaData,
     Table,
@@ -36,60 +39,98 @@ orders = Table(
     Column("id", Integer, primary_key=True),
     Column("user_id", ForeignKey("users.id")),
     Column("product", String(100)),
+    Column("quantity", Integer, default=0, nullable=False)
 )
 
 # cria tudo
 metadata.create_all(engine)
+get_db_driver: Callable[[Connection], DbDriver] = lambda conn: DbDriver(metadata, conn)
 
 # ----------------------------
 # INSERT
 # ----------------------------
+returned = []
 with engine.begin() as conn:
-    stmt = insert(users).values([
-        {"name": "João"},
-        {"name": "Maria"},
-    ])
-    conn.execute(stmt)
+    db_driver = get_db_driver(conn)
+    data = [
+        [
+            "users","users","users"
+        ],
+        [
+            "id","name","MD"
+        ],
+        [
+            None,"João","A"
+        ],
+        [
+            None,"Maria","A"
+        ],
+    ]
+    returned = db_driver.Atualizar.define_data(data).update()
+print(f"\n--- ATUALIZAR users --- returned:{returned}")
+
+# ----------------------------
+# UPSERT
+# ----------------------------
+with engine.begin() as conn:
+    db_driver = get_db_driver(conn)
+    data = [
+        [
+            "users","users","users"
+        ],
+        [
+            "id","name","MD"
+        ],
+        [
+            2,"Maria Silva Sauro","A"
+        ],
+        [
+            None,"Ricardo Novo","A"
+        ],
+        [
+            5,"Ricardo 5","A"
+        ],
+    ]
+    returned = db_driver.Atualizar.define_data(data).update()
+print(f"\n--- UPSERT users --- returned:{returned}")
+
 
 # ----------------------------
 # SELECT simples
 # ----------------------------
-with engine.connect() as conn:
-    stmt = select(users)
-    result = conn.execute(stmt)
-
-    print("\n--- USERS ---")
-    for row in result:
-        print(row._mapping)  # dict-like
-
-# ----------------------------
-# INSERT com FK
-# ----------------------------
 with engine.begin() as conn:
-    stmt = insert(orders).values([
-        {"user_id": 1, "product": "Notebook"},
-        {"user_id": 1, "product": "Mouse"},
-        {"user_id": 2, "product": "Teclado"},
-    ])
-    conn.execute(stmt)
+    db_driver = get_db_driver(conn)
+    data = [
+        [
+            "users","users"
+        ],
+        [
+            "id","name"
+        ],
+    ]
+    returned = db_driver.Pesquisar.define_header(data).search()
+print(f"\n--- PESQUISAR users --- returned:\n{returned}\n")
 
 # ----------------------------
 # SELECT com JOIN
 # ----------------------------
-with engine.connect() as conn:
-    stmt = (
-        select(
-            users.c.name,
-            orders.c.product
-        )
-        .join(orders, users.c.id == orders.c.user_id)
-    )
-
-    result = conn.execute(stmt)
-
-    print("\n--- JOIN ---")
-    for row in result:
-        print(row._mapping)
+with engine.begin() as conn:
+    db_driver = get_db_driver(conn)
+    data = [
+        [
+            "users","users","orders","orders","orders"
+        ],
+        [
+            "id","name","id","product","quantity"
+        ],
+    ]
+    relationships = [
+        [
+            "users","orders","id","user_id"
+        ]
+    ]
+    returned = db_driver.Pesquisar.define_header(data).define_relationships(relationships).search()
+print(f"\n--- PESQUISAR users --- returned:\n{returned}\n")
 
 # ----------------------------
 # UPDATE
