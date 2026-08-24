@@ -76,7 +76,8 @@ class DbDriverUtils:
         for idx in range(max_cols):
             table_name = table_row[idx]
             column_name = header_row[idx]
-
+            if (not table_name in columns_definitions):
+                raise ValueError(f"Tabela {table_name} não encontrada no schema.")
             if (
                 table_name in columns_definitions
                 and column_name in columns_definitions[table_name]
@@ -156,6 +157,7 @@ class DbDriverUtils:
                 
                 #Remove de necesary_tables caso exista a table_a
                 necesary_tables.discard(table_a)
+                necesary_tables.discard(table_b)
 
         # Testa caso esteja faltando alguma tabela necessária para o header que não foi incluída nos relacionamentos
         if necesary_tables:
