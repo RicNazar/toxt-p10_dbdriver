@@ -355,7 +355,7 @@ class DbDriverUtils:
 
         row_conditions = []
         for row in filters[2:]:
-            col_conditions = []
+            conditions_by_column: Dict[Tuple[str, str], List[Any]] = {}
             if debug:
                 print(f"Processing filter row: {row}")
             for idx, raw_value in enumerate(row):
@@ -367,34 +367,61 @@ class DbDriverUtils:
                 table_name = filters[0][idx]
                 col_name = filters[1][idx]
                 column = columns_definitions[table_name][col_name]["column_obj"]
-                value, _value_type = DbDriverUtils._valid_info(str(column.type), raw_value)
-                
-                if debug:
-                    print(f"  Column: {table_name}.{col_name} (type: {_value_type}), Raw value: {raw_value}, Parsed value: {value}")
-                
+                col_conditions = conditions_by_column.setdefault((table_name, col_name), [])
+
+                if isinstance(raw_value, str):
+                    null_op = None
+                    null_operand = raw_value.strip()
+                    for op in ("!=", ">=", "<=", ">", "<", "==", "="):
+                        if null_operand.startswith(op):
+                            null_op = op
+                            null_operand = null_operand[len(op):].strip()
+                            break
+
+                    if null_operand.lower() == "null":
+                        null_condition = None
+                        if null_op in (None, "=", "=="):
+                            null_condition = column.is_(None)
+                        elif null_op == "!=":
+                            null_condition = column.is_not(None)
+
+                        if null_condition is None:
+                            if debug:
+                                print(f"    unsupported NULL operation ignored: {null_op} on column {table_name}.{col_name}")
+                            continue
+
+                        col_conditions.append(null_condition)
+
+                        if debug:
+                            operation = null_op if null_op else "=="
+                            print(f"    operation: {operation} on column {table_name}.{col_name} with SQL NULL")
+                            print(f"    Condition added: {col_conditions[-1]}")
+                        continue
+
                 # operadores inline em string: ">=1", "!=OPEN", "<5", etc.
                 _str_op = None
                 _str_val = raw_value
-                
-                # Separa o operador caso exista (number e date)
-                if isinstance(raw_value, str) and _value_type in ("NUMBER", "DATE"):
+
+                if isinstance(raw_value, str):
                     for _op in ("!=", ">=", "<=", ">", "<", "=="):
                         if raw_value.startswith(_op):
                             _str_op = _op
                             _str_val = raw_value[len(_op):]
                             break
+
+                value, _value_type = DbDriverUtils._valid_info(str(column.type), _str_val if _str_op else raw_value)
+
+                if _value_type == "TEXT" and _str_op not in (None, "!=", "=="):
+                    _str_op = None
+                    _str_val = raw_value
+                    value, _value_type = DbDriverUtils._valid_info(str(column.type), raw_value)
                 
-                # Separa o operador caso exista (text)
-                if isinstance(raw_value, str) and _value_type == "TEXT":
-                    for _op in ("!=", "=="):
-                        if raw_value.startswith(_op):
-                            _str_op = _op
-                            _str_val = raw_value[len(_op):]
-                            break
+                if debug:
+                    print(f"  Column: {table_name}.{col_name} (type: {_value_type}), Raw value: {raw_value}, Parsed value: {value}")
 
                 # Caso tenha operador avalia
                 if _str_op is not None:
-                    parsed_val, parsed_type = DbDriverUtils._valid_info(str(column.type), _str_val)
+                    parsed_val, parsed_type = value, _value_type
                     if _str_op == "!=":
                         # TEXT com wildcard vira NOT LIKE
                         if parsed_type == "TEXT" and isinstance(parsed_val, str):
@@ -447,11 +474,20 @@ class DbDriverUtils:
                     print(f"    Condition added: {col_conditions[-1]}")
 
 
-            if col_conditions:
-                if len(col_conditions) == 1:
-                    row_conditions.append(col_conditions[0])
+            grouped_conditions = []
+            for conditions in conditions_by_column.values():
+                if not conditions:
+                    continue
+                if len(conditions) == 1:
+                    grouped_conditions.append(conditions[0])
                 else:
-                    row_conditions.append(and_(*col_conditions))
+                    grouped_conditions.append(or_(*conditions))
+
+            if grouped_conditions:
+                if len(grouped_conditions) == 1:
+                    row_conditions.append(grouped_conditions[0])
+                else:
+                    row_conditions.append(and_(*grouped_conditions))
 
         if not row_conditions:
             return None

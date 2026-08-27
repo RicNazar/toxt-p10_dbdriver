@@ -32,6 +32,7 @@ orders = Table("orders", metadata,
     Column("id", Integer, primary_key=True),
     Column("user_id", ForeignKey("users.id"), nullable=False),
     Column("product", String(100), nullable=False),
+    Column("status", String(20), nullable=False),
 )
 
 # Cria as tabelas caso não existam
@@ -114,15 +115,58 @@ resultado = (
 )
 ```
 
+Na matriz de filtros, valores na mesma linha normalmente são combinados com `AND`. Linhas diferentes continuam sendo alternativas completas combinadas com `OR`.
+
+Quando a mesma combinação de tabela e coluna aparece mais de uma vez na mesma linha, os valores dessa coluna são agrupados com `OR` antes de combinar com as demais colunas:
+
+```python
+.define_filter([
+    ["orders", "orders", "orders"],
+    ["id",     "id",     "status"],
+    ["10",     "20",     "OPEN"],
+])
+# equivale a: (orders.id = 10 OR orders.id = 20) AND orders.status = 'OPEN'
+```
+
+O agrupamento considera a chave completa `(tabela, coluna)`. Colunas com o mesmo nome em tabelas diferentes são agrupadas separadamente.
+
 #### Filtro com operadores
 
 ```python
 .define_filter([
-    ["users"],
-    ["id"],
-    [(">=", 2)],  # operadores: !=, >, >=, <, <=, like
+    ["users", "users", "users"],
+    ["id",    "name",  "name" ],
+    [">=2",   "!=Ana", "*bru*"],  # >, >=, <, <=, !=, == e curingas com *
 ])
 ```
+
+#### Filtro para valores SQL NULL
+
+Use `null` como palavra reservada de filtro para gerar operadores SQL nativos de nulo, em qualquer tipo de coluna:
+
+| Sintaxe  | SQLAlchemy gerado     |
+| -------- | --------------------- |
+| `null`   | `column.is_(None)`    |
+| `=null`  | `column.is_(None)`    |
+| `==null` | `column.is_(None)`    |
+| `!=null` | `column.is_not(None)` |
+
+O reconhecimento ignora espaços e maiúsculas/minúsculas, por exemplo `" NULL "`, `"==NULL"` e `"!= Null"`.
+
+Compatibilidade: por essa convenção, o texto `"null"` no filtro passa a significar SQL `NULL` também em colunas de texto. A sintaxe atual de filtros não possui escape explícito para buscar a string literal `"null"`; use outra condição SQLAlchemy via API de statement quando precisar distinguir esse texto literal de um valor nulo.
+
+#### Formatos aceitos em `define_filter(...)`
+
+- Valor literal: `"OPEN"`, `10`, `"2026-01-01"` (comparação por igualdade)
+- Operador inline em string: `">=2"`, `"<10"`, `"!=OPEN"`, `"==Ana"`
+- Valor nulo SQL: `"null"`, `"=null"`, `"==null"`, `"!=null"`
+- Texto com curinga `*`: `"Ana*"`, `"*silva"`, `"*ana*"` (vira `LIKE`)
+
+Observações importantes:
+
+- Tuplas como `[(">=", 2)]` não são interpretadas como operador + valor no código atual.
+- Para colunas de texto, `"=="` vazio (`"=="`) gera condição para vazio/nulo.
+- Valores "falsy" literais no filtro (ex.: `0`, `False`, `""`, `None`) são ignorados pelo parser de filtro atual.
 
 #### Pesquisa completa (todas as colunas)
 

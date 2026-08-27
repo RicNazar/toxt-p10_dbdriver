@@ -41,16 +41,16 @@ class DbDriverSearch(DbDriverCore):
             modified = [filters[0], filters[1]]
             for row in filters[2:]:
                 new_row = []
-                for val in row:
+                for idx, val in enumerate(row):
                     # verifica se existe a tabela e coluna
-                    valid_table = len(filters) > 0 and len(filters[0]) > 0 and filters[0][0] in self._columns_definitions
-                    valid_column = len(filters) > 1 and len(filters[1]) > 0 and filters[1][0] in self._columns_definitions.get(filters[0][0], {})
+                    valid_table = idx < len(filters[0]) and filters[0][idx] in self._columns_definitions
+                    valid_column = idx < len(filters[1]) and filters[1][idx] in self._columns_definitions.get(filters[0][idx], {})
 
                     # coleta o tipo de self._columns_definitions e verifica se é string não vazia sem operadores de comparação
                     if valid_table and valid_column:
-                        column_type = str(self._columns_definitions[filters[0][0]][filters[0][1]]["column_obj"].type).upper()
+                        column_type = str(self._columns_definitions[filters[0][idx]][filters[1][idx]]["column_obj"].type).upper()
                         is_text =  any(t in column_type for t in ("VARCHAR", "CHAR", "TEXT", "CLOB", "STRING", "NCHAR", "NVARCHAR", "UNICODE", "ENUM"))
-                        if is_text and val.strip() and not val.startswith(("!=", ">=", "<=", ">", "<", "*")) and not val.endswith("*"):
+                        if isinstance(val, str) and is_text and val.strip() and not val.startswith(("!=", ">=", "<=", ">", "<", "*")) and not val.endswith("*"):
                             new_row.append(f"*{val.strip()}*")
                         else:
                             new_row.append(val)
